@@ -1,70 +1,155 @@
-# Getting Started with Create React App
+# CAPSTONE Setup Guide (Client + Backend + Python)
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+This document explains how to set up the full CAPSTONE system from scratch.
 
-## Available Scripts
+## 1. Prerequisites
 
-In the project directory, you can run:
+Install the following before starting:
 
-### `npm start`
+- Node.js 18+ and npm
+- Python 3.10+ (with pip)
+- XAMPP (MySQL and phpMyAdmin)
+- ffmpeg (required for audio/video processing)
+- A Gemini API key
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+Optional:
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+- OpenAI API key (used by `backend/gpt.js`)
 
-### `npm test`
+### macOS helpers
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+```bash
+brew install ffmpeg
+brew install python
+```
 
-### `npm run build`
+## 2. Open Project Root
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+From terminal, go to the CAPSTONE root folder:
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+```bash
+cd /Applications/XAMPP/xamppfiles/htdocs/CAPSTONE
+```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+## 3. Set Up Database
 
-### `npm run eject`
+1. Start XAMPP and make sure MySQL is running.
+2. Open phpMyAdmin.
+3. Create a database named `py_project` (or use the one from import).
+4. Import `backend/py_project.sql` into that database.
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+This creates the required tables such as `tbl_account`, `saved_videos`, and `action_plan_tasks`.
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+## 4. Create Backend Environment File
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+Create `backend/.env` and set these values:
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+```env
+PORT=8800
+CLIENT_URL=http://localhost:3000
 
-## Learn More
+DB_HOST=localhost
+DB_USER=root
+DB_PASSWORD=
+DB_NAME=py_project
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+JWT_SECRET=replace_with_long_random_secret
+JWT_REFRESH_SECRET=replace_with_another_long_random_secret
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+GEMINI_API_KEY=your_gemini_api_key
 
-### Code Splitting
+# Optional
+OPENAI_API_KEY=your_openai_api_key
+NODE_ENV=development
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+## 5. Install Backend Dependencies
 
-### Analyzing the Bundle Size
+```bash
+cd backend
+npm install
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+## 6. Set Up Python Environment
 
-### Making a Progressive Web App
+From project root:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+```bash
+cd /Applications/XAMPP/xamppfiles/htdocs/CAPSTONE
+python3 -m venv venv
+source venv/bin/activate
+pip install -r backend/requirements.txt
+```
 
-### Advanced Configuration
+Important:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+- `backend/index.js` uses `python3` for main analysis.
+- `backend/train_routes.js` uses `python` for model training.
+- Ensure both `python3` and `python` commands are available in your terminal.
 
-### Deployment
+## 7. Install Client Dependencies
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+```bash
+cd /Applications/XAMPP/xamppfiles/htdocs/CAPSTONE/client
+npm install
+```
 
-### `npm run build` fails to minify
+## 8. Confirm Frontend API URL
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+Verify API base URL in `client/src/components/config/LocalConfigApi.jsx`:
+
+```js
+export const ApiConfig = {
+	apiURL: 'http://localhost:8800'
+}
+```
+
+## 9. Run the System
+
+Use two terminals.
+
+Terminal 1 (backend):
+
+```bash
+cd /Applications/XAMPP/xamppfiles/htdocs/CAPSTONE
+source venv/bin/activate
+cd backend
+npm run dev
+```
+
+Terminal 2 (client):
+
+```bash
+cd /Applications/XAMPP/xamppfiles/htdocs/CAPSTONE/client
+npm start
+```
+
+## 10. Access the App
+
+- Client: http://localhost:3000
+- Backend: http://localhost:8800
+
+## 11. Quick Verification Checklist
+
+- Backend terminal shows database connected.
+- Uploading video works without Python errors.
+- Transcription/analysis returns JSON result.
+- Login/signup flows can read and write to MySQL.
+
+## Troubleshooting
+
+### Error: ffmpeg not found
+
+Install ffmpeg and restart terminal.
+
+### Error: No API key found
+
+Add `GEMINI_API_KEY` in `backend/.env` and restart backend.
+
+### Error: DB connection failed
+
+Check `DB_HOST`, `DB_USER`, `DB_PASSWORD`, and `DB_NAME` in `backend/.env`, and verify MySQL is running in XAMPP.
+
+### Error: python command not found during training
+
+Install Python so `python` is available, or update the spawn command in `backend/train_routes.js` to use `python3`.
