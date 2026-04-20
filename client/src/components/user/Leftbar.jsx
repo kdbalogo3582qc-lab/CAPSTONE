@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { IoHomeOutline } from "react-icons/io5";
+import { MdOutlineSpaceDashboard } from "react-icons/md";
+import { MdCompareArrows } from "react-icons/md";
+import { MdOutlineChecklist } from "react-icons/md";
 import { CiVideoOn } from "react-icons/ci";
 import { GoUnlock,  } from "react-icons/go";
 import { FaRegCircleQuestion, FaVide } from "react-icons/fa6";
@@ -33,6 +35,10 @@ export default function Leftbar({ isMobileMenuOpen, closeMobileMenu }) {
       setActive("how-it-works");
     } else if (path === "/saved-videos") {
       setActive("My Recordings");
+    } else if (path === "/compare-runs") {
+      setActive("Compare Runs");
+    } else if (path === "/action-plan-tasks") {
+      setActive("Action Plan Tasks");
     } else if (path === "/train-model") {
       setActive("Train Model");
     } else {
@@ -71,9 +77,9 @@ export default function Leftbar({ isMobileMenuOpen, closeMobileMenu }) {
           <MainMenuSection>
             <MenuItem 
               to="/home" 
-              label="Home" 
+              label="Dashboard" 
               id="Home"
-              icon={<IoHomeOutline size={24} />} 
+              icon={<MdOutlineSpaceDashboard size={24} />} 
             />
             
             {/* Commented out but with consistent styling if uncommented */}
@@ -82,6 +88,20 @@ export default function Leftbar({ isMobileMenuOpen, closeMobileMenu }) {
               label="My Recordings" 
               id="My Recordings"
               icon={<CiVideoOn size={24} />} 
+            />
+
+            <MenuItem 
+              to="/compare-runs" 
+              label="Compare Runs" 
+              id="Compare Runs"
+              icon={<MdCompareArrows size={24} />} 
+            />
+
+            <MenuItem 
+              to="/action-plan-tasks" 
+              label="Action Plan Tasks" 
+              id="Action Plan Tasks"
+              icon={<MdOutlineChecklist size={24} />} 
             />
 
             <MenuItem 
@@ -134,9 +154,37 @@ export default function Leftbar({ isMobileMenuOpen, closeMobileMenu }) {
               <MainMenuSection>
                 <MenuItem 
                   to="/home" 
-                  label="Home" 
+                  label="Dashboard" 
                   id="Home"
-                  icon={<IoHomeOutline size={24} />} 
+                  icon={<MdOutlineSpaceDashboard size={24} />} 
+                />
+
+                <MenuItem 
+                  to="/saved-videos" 
+                  label="My Recordings" 
+                  id="My Recordings"
+                  icon={<CiVideoOn size={24} />} 
+                />
+
+                <MenuItem 
+                  to="/compare-runs" 
+                  label="Compare Runs" 
+                  id="Compare Runs"
+                  icon={<MdCompareArrows size={24} />} 
+                />
+
+                <MenuItem 
+                  to="/action-plan-tasks" 
+                  label="Action Plan Tasks" 
+                  id="Action Plan Tasks"
+                  icon={<MdOutlineChecklist size={24} />} 
+                />
+
+                <MenuItem 
+                  to="/train-model" 
+                  label="Train Model" 
+                  id="Train Model"
+                  icon={<GoUnlock size={24} />} 
                 />
               </MainMenuSection>
 
@@ -182,7 +230,7 @@ const DesktopSidebar = styled.div`
   width: 230px;
   box-shadow: 2px 0 8px rgba(0, 0, 0, 0.05);
   position: fixed;
-  top: 80px;
+  top: 64px;
   left: 0;
   bottom: 0;
   background: white;

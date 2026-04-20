@@ -8,6 +8,9 @@ import HowItWorks from './components/user/HowItWorks';
 import Dashboard from './components/user/Dashboard';
 import TrainModel from './components/user/TrainModel';
 import SavedVideos from './components/user/SavedVideo';
+import Profile from './components/user/Profile';
+import CompareRuns from './components/user/CompareRuns';
+import ActionPlanTasks from './components/user/ActionPlanTasks';
 
 
 function App() {
@@ -24,6 +27,9 @@ function App() {
             <Route path="/train-model" element={<TrainModel />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/saved-videos" element={<SavedVideos />} />
+            <Route path="/profile" element={<Profile />} />
+            <Route path="/compare-runs" element={<CompareRuns />} />
+            <Route path="/action-plan-tasks" element={<ActionPlanTasks />} />
           </Routes>
         </BrowserRouter>
       </AuthProvider>

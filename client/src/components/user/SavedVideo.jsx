@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import axios from "axios";
 import styled, { keyframes } from "styled-components";
 import Navbar from "./Navbar";
@@ -19,6 +19,7 @@ import {
 } from "react-icons/fi";
 import { HiMenuAlt3 } from "react-icons/hi";
 import { CiVideoOn } from "react-icons/ci";
+import { CiSearch } from "react-icons/ci";
 import Swal from "sweetalert2";
 
 const MAX_STORAGE = 5 * 1024 * 1024 * 1024;
@@ -58,6 +59,12 @@ const buildVideoUrl = (videoPath) => {
     return `${base}/${videoPath}`;
 };
 
+const formatVideoName = (videoPath) => {
+    if (!videoPath) return "Untitled recording";
+    const fileName = String(videoPath).split("/").pop() || videoPath;
+    return fileName.replace(/^\d+-/, "");
+};
+
 export default function SavedVideos() {
     const { user, loading } = useAuth();
     const navigate = useNavigate();
@@ -69,6 +76,8 @@ export default function SavedVideos() {
     const [storage, setStorage]           = useState({ used: 0, max: MAX_STORAGE, count: 0 });
     const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
     const [playingVideo, setPlayingVideo] = useState(null);
+    const [searchQuery, setSearchQuery]   = useState("");
+    const [sortBy, setSortBy]             = useState("newest");
 
     useEffect(() => { if (!loading && !user) navigate("/"); }, [user, loading, navigate]);
 
@@ -150,6 +159,23 @@ export default function SavedVideos() {
     const usedPct = Math.min(100, (storage.used / MAX_STORAGE) * 100);
     const storageColor = usedPct > 90 ? "#ef4444" : usedPct > 70 ? "#f97316" : "#0284c7";
 
+    const filteredVideos = useMemo(() => {
+        const query = searchQuery.trim().toLowerCase();
+        const list = [...videos].filter((video) => {
+            if (!query) return true;
+            const cleanName = formatVideoName(video.video_path).toLowerCase();
+            return cleanName.includes(query);
+        });
+
+        list.sort((a, b) => {
+            if (sortBy === "oldest") return new Date(a.created_at) - new Date(b.created_at);
+            if (sortBy === "largest") return (b.file_size || 0) - (a.file_size || 0);
+            return new Date(b.created_at) - new Date(a.created_at);
+        });
+
+        return list;
+    }, [videos, searchQuery, sortBy]);
+
     return (
         <PageWrapper>
             <Navbar user={user} />
@@ -185,7 +211,7 @@ export default function SavedVideos() {
                     <HeaderBlock>
                         <PageTitle>My Recordings</PageTitle>
                         <PageSubtitle>
-                            {storage.count} saved {storage.count === 1 ? "recording" : "recordings"} · click any card to expand analysis
+                            {filteredVideos.length} of {storage.count} {storage.count === 1 ? "recording" : "recordings"} · click a card to view details
                         </PageSubtitle>
                     </HeaderBlock>
 
@@ -213,6 +239,31 @@ export default function SavedVideos() {
                     </StorageWidget>
                 </TopRow>
 
+                <ControlsRow>
+                    <SearchWrap>
+                        <CiSearch size={18} />
+                        <SearchInput
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search recordings by filename"
+                        />
+                    </SearchWrap>
+
+                    <SortSelect
+                        value={sortBy}
+                        onChange={(e) => setSortBy(e.target.value)}
+                    >
+                        <option value="newest">Sort: Newest</option>
+                        <option value="oldest">Sort: Oldest</option>
+                        <option value="largest">Sort: Largest Size</option>
+                    </SortSelect>
+
+                    <StatPill>
+                        <span>Visible</span>
+                        <strong>{filteredVideos.length}</strong>
+                    </StatPill>
+                </ControlsRow>
+
                 {/* ── Content ── */}
                 {fetching ? (
                     <LoadingGrid>
@@ -228,13 +279,24 @@ export default function SavedVideos() {
                             Analyze a video on the Home page and click <strong>Save</strong> to store it here.
                         </EmptyText>
                     </EmptyState>
+                ) : filteredVideos.length === 0 ? (
+                    <EmptyState>
+                        <EmptyIconRing>
+                            <CiVideoOn size={36} />
+                        </EmptyIconRing>
+                        <EmptyTitle>No matches found</EmptyTitle>
+                        <EmptyText>
+                            No recording name matches <strong>{searchQuery}</strong>. Try a different keyword.
+                        </EmptyText>
+                    </EmptyState>
                 ) : (
                     <VideoList>
-                        {videos.map((video) => {
+                        {filteredVideos.map((video) => {
                             const analysis = (() => { try { return JSON.parse(video.analysis); } catch { return null; } })();
                             const extra    = (() => { try { return JSON.parse(video.extra_results); } catch { return null; } })();
                             const isOpen   = expandedId === video.id;
                             const currTab  = activeTab[video.id] ?? 1;
+                            const currTabMeta = TAB_KEYS.find((tab) => tab.id === currTab);
 
                             const videoUrl = buildVideoUrl(video.video_path);
 
@@ -246,7 +308,7 @@ export default function SavedVideos() {
                                         </ThumbIconWrap>
 
                                         <CardMeta>
-                                            <CardTitle>{video.video_path || "Untitled recording"}</CardTitle>
+                                            <CardTitle>{formatVideoName(video.video_path)}</CardTitle>
                                             <CardDateRow>
                                                 <FiClock size={11} />
                                                 {formatDate(video.created_at)}
@@ -263,7 +325,7 @@ export default function SavedVideos() {
                                                     title="Play video"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        setPlayingVideo({ id: video.id, url: videoUrl, name: video.video_path });
+                                                        setPlayingVideo({ id: video.id, url: videoUrl, name: formatVideoName(video.video_path) });
                                                     }}
                                                 >
                                                     <FiPlay size={13} />
@@ -307,7 +369,7 @@ export default function SavedVideos() {
                                                                     setActiveTab((p) => ({ ...p, [video.id]: tab.id }))
                                                                 }
                                                             >
-                                                                <TabIcon>{tab.icon}</TabIcon>
+                                                                <TabIcon $active={currTab === tab.id}>{tab.icon}</TabIcon>
                                                                 {tab.name}
                                                             </TabPill>
                                                         ))}
@@ -472,9 +534,18 @@ export default function SavedVideos() {
                                                             )}
                                                         </AnalyticsBox>
                                                     ) : (
-                                                        <ContentBox>
-                                                            {getTabContent(analysis, currTab)}
-                                                        </ContentBox>
+                                                        <ContentPanel>
+                                                            <ContentPanelHeader>
+                                                                <ContentPanelTitle>
+                                                                    {currTabMeta?.icon}
+                                                                    {currTabMeta?.name || "Insights"}
+                                                                </ContentPanelTitle>
+                                                                <ContentPanelHint>AI Generated Insight</ContentPanelHint>
+                                                            </ContentPanelHeader>
+                                                            <ContentBox>
+                                                                {getTabContent(analysis, currTab)}
+                                                            </ContentBox>
+                                                        </ContentPanel>
                                                     )}
 
                                                     {extra && (extra.tone || extra.speaking_rate) && (
@@ -591,6 +662,82 @@ const StorageBarFill = styled.div`
 const StorageFooter = styled.div`
     display: flex; justify-content: space-between;
     font-size: 0.72rem; color: #94a3b8; margin-top: 8px;
+`;
+
+const ControlsRow = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+`;
+
+const SearchWrap = styled.div`
+    height: 40px;
+    border: 1px solid #dbe3ec;
+    border-radius: 10px;
+    background: #ffffff;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #94a3b8;
+    padding: 0 10px;
+    min-width: 260px;
+    flex: 1;
+
+    &:focus-within {
+        border-color: #93c5fd;
+        box-shadow: 0 0 0 3px rgba(59,130,246,0.12);
+    }
+`;
+
+const SearchInput = styled.input`
+    width: 100%;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: #0f172a;
+    font-size: 0.85rem;
+
+    &::placeholder {
+        color: #94a3b8;
+    }
+`;
+
+const SortSelect = styled.select`
+    height: 40px;
+    border-radius: 10px;
+    border: 1px solid #dbe3ec;
+    padding: 0 10px;
+    background: #ffffff;
+    color: #334155;
+    font-size: 0.82rem;
+    min-width: 165px;
+`;
+
+const StatPill = styled.div`
+    height: 40px;
+    border-radius: 10px;
+    border: 1px solid #dbe3ec;
+    background: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 12px;
+
+    span {
+        color: #94a3b8;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-weight: 600;
+    }
+
+    strong {
+        color: #0284c7;
+        font-size: 0.95rem;
+        font-weight: 700;
+    }
 `;
 
 /* ─────────────── Empty / Loading ─────────────── */
@@ -717,30 +864,78 @@ const InlineVideoWrap = styled.div`
 const InlineVideo = styled.video`width: 100%; max-height: 500px; display: block;`;
 
 const TabsScroll = styled.div`
-    display: flex; gap: 8px; padding: 0 20px 16px;
+    display: flex; gap: 9px; padding: 0 20px 14px;
     overflow-x: auto; scrollbar-width: none;
     &::-webkit-scrollbar { display: none; }
 `;
 
 const TabPill = styled.button`
     display: flex; align-items: center; gap: 6px;
-    white-space: nowrap; padding: 7px 14px; border-radius: 8px;
-    border: 1px solid ${(p) => (p.$isActive ? "#0284c7" : "#e2e8f0")};
-    background: ${(p) => (p.$isActive ? "#eff6ff" : "white")};
-    color: ${(p) => (p.$isActive ? "#0284c7" : "#64748b")};
-    font-size: 0.8rem;
+    white-space: nowrap; padding: 8px 14px; border-radius: 999px;
+    border: 1px solid ${(p) => (p.$isActive ? "#0284c7" : "#dbe3ec")};
+    background: ${(p) => (p.$isActive ? "linear-gradient(135deg, #075985 0%, #0284c7 100%)" : "white")};
+    color: ${(p) => (p.$isActive ? "#ffffff" : "#475569")};
+    font-size: 0.79rem;
     font-weight: ${(p) => (p.$isActive ? "600" : "400")};
+    box-shadow: ${(p) => (p.$isActive ? "0 6px 16px rgba(2,132,199,0.25)" : "none")};
     cursor: pointer; transition: all 0.18s;
-    &:hover { border-color: #0284c7; color: #0284c7; }
+    &:hover { border-color: #0284c7; color: ${(p) => (p.$isActive ? "#ffffff" : "#0284c7")}; }
 `;
 
-const TabIcon = styled.span`display: flex; align-items: center; font-size: 0.9rem;`;
+const TabIcon = styled.span`
+    display: flex;
+    align-items: center;
+    font-size: 0.9rem;
+    opacity: ${(p) => (p.$active ? 1 : 0.85)};
+`;
+
+const ContentPanel = styled.div`
+    margin: 0 20px 20px;
+    border-radius: 14px;
+    border: 1px solid #dbe3ec;
+    background: #ffffff;
+    overflow: hidden;
+`;
+
+const ContentPanelHeader = styled.div`
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    background: linear-gradient(180deg, #f8fbff 0%, #f1f7fd 100%);
+    border-bottom: 1px solid #e5edf5;
+`;
+
+const ContentPanelTitle = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #0f172a;
+    font-size: 0.86rem;
+    font-weight: 650;
+`;
+
+const ContentPanelHint = styled.span`
+    font-size: 0.65rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #0284c7;
+    background: #e0f2fe;
+    border: 1px solid #bae6fd;
+    border-radius: 999px;
+    padding: 4px 8px;
+`;
 
 const ContentBox = styled.p`
-    margin: 0 20px 20px; padding: 18px 20px;
-    font-size: 0.9375rem; font-weight: 300; line-height: 1.8;
-    color: #475569; white-space: pre-wrap;
-    background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0;
+    margin: 0;
+    padding: 16px 16px 18px;
+    font-size: 0.93rem;
+    font-weight: 380;
+    line-height: 1.85;
+    color: #334155;
+    white-space: pre-wrap;
+    background: #ffffff;
 `;
 
 const NoAnalysis = styled.p`

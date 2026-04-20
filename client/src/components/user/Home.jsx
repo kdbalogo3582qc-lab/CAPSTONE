@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import axios from "axios";
 import Navbar from "./Navbar";
 import Leftbar from "./Leftbar";
@@ -38,7 +38,7 @@ function Home() {
         try {
             if (val === null) localStorage.removeItem("home_uploadedVideoPath");
             else localStorage.setItem("home_uploadedVideoPath", val);
-        } catch {}
+        } catch { }
     };
 
     const [uploadedVideoName, setUploadedVideoNameState] = useState(() => {
@@ -49,7 +49,7 @@ function Home() {
         try {
             if (val === null) localStorage.removeItem("home_uploadedVideoName");
             else localStorage.setItem("home_uploadedVideoName", val);
-        } catch {}
+        } catch { }
     };
 
     const [uploadedFileSize, setUploadedFileSizeState] = useState(() => {
@@ -60,7 +60,7 @@ function Home() {
         try {
             if (!val) localStorage.removeItem("home_uploadedFileSize");
             else localStorage.setItem("home_uploadedFileSize", String(val));
-        } catch {}
+        } catch { }
     };
 
     const [previewURL, setPreviewURL] = useState(() => {
@@ -70,7 +70,7 @@ function Home() {
                 const base = ApiUrl.apiURL.replace(/\/api\/?$/, '').replace(/\/$/, '');
                 return `${base}/${path}`;
             }
-        } catch {}
+        } catch { }
         return "";
     });
     const [renderLoading, setLoading] = useState(false);
@@ -90,7 +90,7 @@ function Home() {
         try {
             if (val === null) localStorage.removeItem("home_analysisResult");
             else localStorage.setItem("home_analysisResult", JSON.stringify(val));
-        } catch {}
+        } catch { }
     };
 
     const [date, setDate] = useState(new Date());
@@ -113,12 +113,51 @@ function Home() {
     const navigate = useNavigate();
     const progressPanelRef = useRef(null);
 
+    // ─── Inactivity auto-logout (2 hours) ────────────────────────────────────────
+    const INACTIVE_LIMIT_MS = 2 * 60 * 60 * 1000; // 2 hours
+    const inactivityTimerRef = useRef(null);
+
+    const resetInactivityTimer = useCallback(() => {
+        if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+        inactivityTimerRef.current = setTimeout(() => {
+            // Force logout after 2 hours of inactivity
+            axios.post(`${ApiUrl.apiURL}/logout`).catch(() => { });
+            navigate("/login");
+        }, INACTIVE_LIMIT_MS);
+    }, [navigate]);
+
+    useEffect(() => {
+        const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "click"];
+        events.forEach(e => window.addEventListener(e, resetInactivityTimer));
+        resetInactivityTimer(); // start the timer on mount
+
+        return () => {
+            events.forEach(e => window.removeEventListener(e, resetInactivityTimer));
+            if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
+        };
+    }, [resetInactivityTimer]);
+
+    // ─── Silent token refresh every 10 minutes while active ──────────────────────
+    useEffect(() => {
+        const refreshInterval = setInterval(async () => {
+            try {
+                await axios.post(`${ApiUrl.apiURL}/refresh`);
+            } catch {
+                // Refresh failed — user will be logged out on next API call
+
+            }
+        }, 10 * 60 * 1000); // every 10 minutes
+
+        return () => clearInterval(refreshInterval);
+    }, []);
+
     // ─── FIX: Check loading state before redirecting ──────────────────────────
     useEffect(() => {
         if (!loading && !user) {
             navigate('/');
         }
     }, [user, loading, navigate]);
+
 
     const items_nav = [
         { id: 1, name: "Summary", icon: <MdOutlineFormatLineSpacing /> },
@@ -206,6 +245,10 @@ function Home() {
                 const url = `${ApiUrl.apiURL}/process-video-stream?videoPath=${encodeURIComponent(videoPath)}`;
                 const es = new EventSource(url);
 
+                es.onopen = () => {
+                    console.log("SSE connection opened");
+                };
+
                 es.addEventListener("progress", (e) => {
                     const { message } = JSON.parse(e.data);
                     setProgressLogs((prev) => [...prev, message]);
@@ -215,6 +258,7 @@ function Home() {
                     es.close();
                     const { success, data } = JSON.parse(e.data);
                     if (success && data) {
+                        // console.log("FULL RESULT:", JSON.stringify(data, null, 2));
                         setAnalysisResult(data);
                         resolve(data);
                     } else {
@@ -223,6 +267,7 @@ function Home() {
                 });
 
                 es.addEventListener("error", (e) => {
+                    console.log("SSE error event:", e.data);
                     es.close();
                     try {
                         const { message } = JSON.parse(e.data);
@@ -232,7 +277,9 @@ function Home() {
                     }
                 });
 
-                es.onerror = () => {
+                es.onerror = (e) => {
+                    console.error("SSE connection error:", e);
+                    console.log("SSE readyState:", es.readyState);
                     es.close();
                     reject(new Error("Connection lost during processing."));
                 };
@@ -547,22 +594,30 @@ function Home() {
                                                     <FaWaveSquare style={{ marginRight: 6 }} /> Audio Signal Metrics
                                                 </AudioMetricsBadge>
                                                 <VisualMetricsGrid>
-                                                    <MetricCard>
-                                                        <MetricLabel>Avg Pitch</MetricLabel>
-                                                        <MetricValue>{analysisResult.audio_analysis.avg_pitch_hz ?? 'N/A'} <MetricUnit>Hz</MetricUnit></MetricValue>
-                                                    </MetricCard>
-                                                    <MetricCard>
-                                                        <MetricLabel>Pitch Variability</MetricLabel>
-                                                        <MetricValue>{analysisResult.audio_analysis.pitch_variability ?? 'N/A'} <MetricUnit>Hz</MetricUnit></MetricValue>
-                                                    </MetricCard>
-                                                    <MetricCard>
-                                                        <MetricLabel>Avg Energy</MetricLabel>
-                                                        <MetricValue>{analysisResult.audio_analysis.avg_energy_db ?? 'N/A'} <MetricUnit>dBFS</MetricUnit></MetricValue>
-                                                    </MetricCard>
-                                                    <MetricCard>
-                                                        <MetricLabel>Speaking Rate</MetricLabel>
-                                                        <MetricValue>{analysisResult.audio_analysis.estimated_speaking_rate_wpm ?? 'N/A'} <MetricUnit>WPM</MetricUnit></MetricValue>
-                                                    </MetricCard>
+                                                    {(() => {
+                                                        const aa = analysisResult.audio_analysis;
+                                                        const hasData = aa && !aa.error;
+                                                        return (
+                                                            <>
+                                                                <MetricCard>
+                                                                    <MetricLabel>Avg Pitch</MetricLabel>
+                                                                    <MetricValue>{hasData ? aa.avg_pitch_hz : 'N/A'} <MetricUnit>Hz</MetricUnit></MetricValue>
+                                                                </MetricCard>
+                                                                <MetricCard>
+                                                                    <MetricLabel>Pitch Variability</MetricLabel>
+                                                                    <MetricValue>{hasData ? aa.pitch_variability : 'N/A'} <MetricUnit>Hz</MetricUnit></MetricValue>
+                                                                </MetricCard>
+                                                                <MetricCard>
+                                                                    <MetricLabel>Avg Energy</MetricLabel>
+                                                                    <MetricValue>{hasData ? aa.avg_energy_db : 'N/A'} <MetricUnit>dBFS</MetricUnit></MetricValue>
+                                                                </MetricCard>
+                                                                <MetricCard>
+                                                                    <MetricLabel>Speaking Rate</MetricLabel>
+                                                                    <MetricValue>{hasData ? aa.estimated_speaking_rate_wpm : 'N/A'} <MetricUnit>WPM</MetricUnit></MetricValue>
+                                                                </MetricCard>
+                                                            </>
+                                                        );
+                                                    })()}
                                                     <MetricCard>
                                                         <MetricLabel>Tempo</MetricLabel>
                                                         <MetricValue>{analysisResult.audio_analysis.tempo_bpm ?? 'N/A'} <MetricUnit>BPM</MetricUnit></MetricValue>
@@ -648,10 +703,10 @@ function Home() {
                                             if (raw && typeof raw === 'object') {
                                                 const normalize = (str) => str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
                                                 const emotionIcons = {
-                                                    'Happy':   <FaSmile className="emotion-icon happy" />,
+                                                    'Happy': <FaSmile className="emotion-icon happy" />,
                                                     'Neutral': <RiEmotionNormalFill className="emotion-icon neutral" />,
                                                     'Excited': <TbMoodCrazyHappyFilled className="emotion-icon excited" />,
-                                                    'Sad':     <PiSmileySadFill className="emotion-icon sad" />,
+                                                    'Sad': <PiSmileySadFill className="emotion-icon sad" />,
                                                 };
                                                 const defaultEmotions = { Happy: '0%', Sad: '0%', Excited: '0%', Neutral: '0%' };
                                                 const normalized = Object.fromEntries(
@@ -675,10 +730,10 @@ function Home() {
                                                 <EmotionsGrid>
                                                     {['Happy', 'Excited', 'Neutral', 'Sad'].map((emotion) => {
                                                         const emotionIcons = {
-                                                            'Happy':   <FaSmile className="emotion-icon happy" />,
+                                                            'Happy': <FaSmile className="emotion-icon happy" />,
                                                             'Neutral': <RiEmotionNormalFill className="emotion-icon neutral" />,
                                                             'Excited': <TbMoodCrazyHappyFilled className="emotion-icon excited" />,
-                                                            'Sad':     <PiSmileySadFill className="emotion-icon sad" />,
+                                                            'Sad': <PiSmileySadFill className="emotion-icon sad" />,
                                                         };
                                                         return (
                                                             <EmotionCard key={emotion}>
@@ -734,11 +789,11 @@ function Home() {
                                             <SuggestionTable>
                                                 <tbody>
                                                     {[
-                                                        { num: '01', category: 'Message Clarity',          tag: 'Summary',       content: getSafeContent(analysisResult, 'summary.summary.content', 'No summary available') },
-                                                        { num: '02', category: 'Audience Impact',           tag: 'Impact',        content: getSafeContent(analysisResult, 'summary.impact.content', 'No impact analysis available') },
-                                                        { num: '03', category: 'Effectiveness Improvements',tag: 'Effectiveness', content: getSafeContent(analysisResult, 'summary.advertisement_effectiveness.content', 'No effectiveness analysis available') },
-                                                        { num: '04', category: 'Emotional Tone',            tag: 'Tone',          content: getSafeContent(analysisResult, 'summary.emotional_tone.content', 'No emotional analysis available') },
-                                                        { num: '05', category: 'Strengths & Weaknesses',    tag: 'Assessment',    content: getSafeContent(analysisResult, 'summary.overall_assessment.content', 'No assessment available') },
+                                                        { num: '01', category: 'Message Clarity', tag: 'Summary', content: getSafeContent(analysisResult, 'summary.summary.content', 'No summary available') },
+                                                        { num: '02', category: 'Audience Impact', tag: 'Impact', content: getSafeContent(analysisResult, 'summary.impact.content', 'No impact analysis available') },
+                                                        { num: '03', category: 'Effectiveness Improvements', tag: 'Effectiveness', content: getSafeContent(analysisResult, 'summary.advertisement_effectiveness.content', 'No effectiveness analysis available') },
+                                                        { num: '04', category: 'Emotional Tone', tag: 'Tone', content: getSafeContent(analysisResult, 'summary.emotional_tone.content', 'No emotional analysis available') },
+                                                        { num: '05', category: 'Strengths & Weaknesses', tag: 'Assessment', content: getSafeContent(analysisResult, 'summary.overall_assessment.content', 'No assessment available') },
                                                     ].map(({ num, category, tag, content }) => (
                                                         <SuggestionTr key={num}>
                                                             <SuggestionNumTd>{num}</SuggestionNumTd>
@@ -800,11 +855,11 @@ function Home() {
                                             {analysisResult.emotion_analysis ? (() => {
                                                 const ea = analysisResult.emotion_analysis;
                                                 const emotions = [
-                                                    { key: 'happy',   label: 'Happy'   },
+                                                    { key: 'happy', label: 'Happy' },
                                                     { key: 'neutral', label: 'Neutral' },
                                                     { key: 'nervous', label: 'Nervous' },
-                                                    { key: 'angry',   label: 'Angry'   },
-                                                    { key: 'sad',     label: 'Sad'     },
+                                                    { key: 'angry', label: 'Angry' },
+                                                    { key: 'sad', label: 'Sad' },
                                                 ];
                                                 const dominant = ea.dominant_emotion ?? '';
                                                 return (
@@ -866,10 +921,10 @@ function Home() {
                                             {analysisResult.speech_clarity ? (() => {
                                                 const sc = analysisResult.speech_clarity;
                                                 const score = sc.overall_score ?? 0;
-                                                const scoreColor  = score >= 80 ? '#166534' : score >= 60 ? '#92400e' : '#991b1b';
-                                                const scoreBg     = score >= 80 ? 'rgba(22,101,52,0.08)' : score >= 60 ? 'rgba(146,64,14,0.08)' : 'rgba(153,27,27,0.08)';
+                                                const scoreColor = score >= 80 ? '#166534' : score >= 60 ? '#92400e' : '#991b1b';
+                                                const scoreBg = score >= 80 ? 'rgba(22,101,52,0.08)' : score >= 60 ? 'rgba(146,64,14,0.08)' : 'rgba(153,27,27,0.08)';
                                                 const scoreBorder = score >= 80 ? 'rgba(22,101,52,0.2)' : score >= 60 ? 'rgba(146,64,14,0.2)' : 'rgba(153,27,27,0.2)';
-                                                const scoreLabel  = score >= 80 ? 'Excellent' : score >= 60 ? 'Satisfactory' : 'Below Standard';
+                                                const scoreLabel = score >= 80 ? 'Excellent' : score >= 60 ? 'Satisfactory' : 'Below Standard';
                                                 return (
                                                     <>
                                                         <OverallScoreRow>
@@ -1884,11 +1939,11 @@ const ClarityTd = styled.td`
 `;
 
 const ClarityMetricName = styled.span`font-size: 0.875rem; font-weight: 500; color: #374151;`;
-const ClarityMetricVal  = styled.span`font-size: 0.9375rem; font-weight: 700; color: #1a2332; font-variant-numeric: tabular-nums;`;
-const ClarityUnit       = styled.span`font-size: 0.75rem; font-weight: 400; color: rgba(107,114,128,0.7); margin-left: 2px;`;
+const ClarityMetricVal = styled.span`font-size: 0.9375rem; font-weight: 700; color: #1a2332; font-variant-numeric: tabular-nums;`;
+const ClarityUnit = styled.span`font-size: 0.75rem; font-weight: 400; color: rgba(107,114,128,0.7); margin-left: 2px;`;
 
 const ClarityBarTrack = styled.div`height: 6px; background: rgba(0,0,0,0.07); border-radius: 2px; overflow: hidden;`;
-const ClarityBarFill  = styled.div`
+const ClarityBarFill = styled.div`
     height: 100%;
     width: ${p => p.$pct ?? 0}%;
     background: rgba(30,64,175,0.45);
@@ -1905,20 +1960,20 @@ const ClarityRatingTag = styled.span`
     border-radius: 3px;
     padding: 2px 8px;
     color: ${p =>
-        p.$rating === 'Ideal'    ? 'rgba(22,101,52,0.9)'  :
-        p.$rating === 'Fast'     ? 'rgba(146,64,14,0.9)'  :
-        p.$rating === 'Too Fast' ? 'rgba(153,27,27,0.9)'  :
-                                   'rgba(55,65,81,0.7)'};
+        p.$rating === 'Ideal' ? 'rgba(22,101,52,0.9)' :
+            p.$rating === 'Fast' ? 'rgba(146,64,14,0.9)' :
+                p.$rating === 'Too Fast' ? 'rgba(153,27,27,0.9)' :
+                    'rgba(55,65,81,0.7)'};
     background: ${p =>
-        p.$rating === 'Ideal'    ? 'rgba(22,101,52,0.1)'  :
-        p.$rating === 'Fast'     ? 'rgba(146,64,14,0.1)'  :
-        p.$rating === 'Too Fast' ? 'rgba(153,27,27,0.1)'  :
-                                   'rgba(0,0,0,0.05)'};
+        p.$rating === 'Ideal' ? 'rgba(22,101,52,0.1)' :
+            p.$rating === 'Fast' ? 'rgba(146,64,14,0.1)' :
+                p.$rating === 'Too Fast' ? 'rgba(153,27,27,0.1)' :
+                    'rgba(0,0,0,0.05)'};
     border: 1px solid ${p =>
-        p.$rating === 'Ideal'    ? 'rgba(22,101,52,0.2)'  :
-        p.$rating === 'Fast'     ? 'rgba(146,64,14,0.2)'  :
-        p.$rating === 'Too Fast' ? 'rgba(153,27,27,0.2)'  :
-                                   'rgba(0,0,0,0.1)'};
+        p.$rating === 'Ideal' ? 'rgba(22,101,52,0.2)' :
+            p.$rating === 'Fast' ? 'rgba(146,64,14,0.2)' :
+                p.$rating === 'Too Fast' ? 'rgba(153,27,27,0.2)' :
+                    'rgba(0,0,0,0.1)'};
 `;
 
 export default Home;

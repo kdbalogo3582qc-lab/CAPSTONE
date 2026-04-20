@@ -81,7 +81,7 @@ function Rightbar({ user, analysisResult, onCollapseChange, isStreaming = false,
 
   const processResponse = async (title, description, analysisResult) => {
     try {
-      const response = await axios.post(`${ApiConfig.apiURL}processPrompt`, {
+      const response = await axios.post(`${ApiConfig.apiURL}/processPrompt`, {
         title,
         description,
         analysisResult,
@@ -99,7 +99,7 @@ function Rightbar({ user, analysisResult, onCollapseChange, isStreaming = false,
 
   const processCustomPrompt = async (userPrompt, analysisResult) => {
     try {
-      const response = await axios.post(`${ApiConfig.apiURL}processPrompt`, {
+      const response = await axios.post(`${ApiConfig.apiURL}/processPrompt`, {
         userPrompt,
         analysisResult,
       });
@@ -538,7 +538,7 @@ const DesktopRightbar = styled.div`
   width: ${props => props.$isCollapsed ? '48px' : '380px'};
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: fixed;
-  top: 80px;
+  top: 64px;
   right: 0;
   bottom: 0;
   background: white;

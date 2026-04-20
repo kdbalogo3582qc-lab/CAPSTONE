@@ -80,12 +80,10 @@ export default function TrainModel() {
       .catch(() => setUser({ acc_id, acc_email: "user@example.com" }));
   }, [acc_id]);
 
-  // Auto-scroll console
   useEffect(() => {
     consoleEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [consoleLogs]);
 
-  // Elapsed timer — use ref so interval closure always has current start time
   useEffect(() => {
     if (status === STATUS.TRAINING) {
       startTimeRef.current = Date.now();
@@ -131,7 +129,6 @@ export default function TrainModel() {
     }
   };
 
-  // ── Upload + Start Training ────────────────────────────────────────────────
   const handleStartTraining = useCallback(async () => {
     if (!csvFile) return;
 
@@ -143,7 +140,6 @@ export default function TrainModel() {
     setElapsed(0);
 
     try {
-      // 1. Upload CSV
       const formData = new FormData();
       formData.append("dataset", csvFile);
       const uploadRes = await fetch(`${ApiUrl.apiURL}/train/upload-dataset`, {

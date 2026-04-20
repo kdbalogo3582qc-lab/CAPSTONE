@@ -12,27 +12,22 @@ from dotenv import load_dotenv
 import warnings
 import tempfile
 
-# ─── Silence ALL library stdout noise BEFORE anything else runs ───────────────
-# Critical on Windows: whisper/librosa/numba print to stdout which breaks JSON
+sys.stdout.reconfigure(line_buffering=True)
+
 warnings.filterwarnings("ignore")
 os.environ["TF_CPP_MIN_LOG_LEVEL"]    = "2"
 os.environ["GRPC_VERBOSITY"]          = "NONE"
 os.environ["TOKENIZERS_PARALLELISM"]  = "false"
 
-# Configure logging to stderr only — stdout is reserved for our JSON output
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     stream=sys.stderr
 )
 
-# Suppress noisy third-party loggers
 for _noisy in ["whisper", "librosa", "numba", "audioread", "urllib3", "httpx"]:
     logging.getLogger(_noisy).setLevel(logging.ERROR)
 
-# ─── Sentinel-based output ────────────────────────────────────────────────────
-# Node.js looks for __RESULT__ to reliably extract the JSON even if stray text
-# leaks onto stdout from libraries we can't fully silence.
 
 def _output_result(data):
     """Write JSON result to stdout with sentinel marker."""
@@ -40,7 +35,6 @@ def _output_result(data):
     sys.stdout.flush()
 
 
-# ─── Load env & configure Gemini ─────────────────────────────────────────────
 load_dotenv()
 
 api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("API_KEY")
@@ -58,11 +52,8 @@ else:
     sys.exit(1)
 
 
-# ─── Audio Extraction ─────────────────────────────────────────────────────────
-
 def extract_audio_from_video(video_path):
     """Extract audio from a video file using pydub/ffmpeg."""
-    # Use system temp dir — always writable on Windows & Linux
     audio_output_path = os.path.join(tempfile.gettempdir(), "adlytica_audio.wav")
     try:
         audio = AudioSegment.from_file(video_path)
@@ -78,13 +69,11 @@ def extract_audio_from_video(video_path):
         raise
 
 
-# ─── Transcription ────────────────────────────────────────────────────────────
 
 def transcribe_audio(audio_path):
     """Transcribe audio to text using OpenAI Whisper."""
     try:
         model  = whisper.load_model("base").to("cpu")
-        # verbose=False stops Whisper from printing progress to stdout
         result = model.transcribe(audio_path, fp16=False, verbose=False)
         if not result["text"].strip():
             raise ValueError("Whisper transcription returned empty text")
@@ -94,8 +83,6 @@ def transcribe_audio(audio_path):
         logging.error(f"Error transcribing audio: {e}")
         raise
 
-
-# ─── Translation ──────────────────────────────────────────────────────────────
 
 def translate_text(text, target_language="en"):
     """Translate text to the target language using Google Translate."""
@@ -107,8 +94,6 @@ def translate_text(text, target_language="en"):
         logging.error(f"Error translating text: {e}")
         raise
 
-
-# ─── Audio Feature Analysis ───────────────────────────────────────────────────
 
 def analyze_audio_features(audio_path):
     """Extract tonal and acoustic features from the audio stream using librosa."""
@@ -129,7 +114,7 @@ def analyze_audio_features(audio_path):
 
         # Tempo
         tempo, _  = librosa.beat.beat_track(y=y, sr=sr)
-        tempo_bpm = float(tempo)
+        tempo_bpm = float(np.squeeze(tempo))
 
         # Spectral centroid
         centroid     = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
@@ -352,18 +337,23 @@ def generate_summary(transcript, audio_analysis):
         f"- Tone: {tone} | Pitch: {pitch} Hz | Pitch Var: {pitch_var} Hz\n"
         f"- Energy: {energy} dBFS | Energy Var: {energy_var} dB\n"
         f"- Speaking Rate: {wpm} WPM | Tempo: {tempo} BPM | Silence: {silence}\n\n"
+        "IMPORTANT WRITING RULES — follow strictly:\n"
+        "- Every 'content' field (except listener_emotions.content) must contain AT LEAST 3 full sentences.\n"
+        "- Be specific, analytical, and detailed. Reference actual words or phrases from the transcript.\n"
+        "- Do NOT write vague or generic sentences. Each sentence must add a distinct insight.\n"
+        "- listener_emotions.reason values must each be at least 2 sentences explaining why that emotion is evoked.\n\n"
         "Return ONLY a raw JSON object — no markdown, no backticks, no explanation before or after. "
         "Use exactly this structure:\n"
-        '{"transcript":{"title":"Transcript","content":"<full transcript>"},'
-        '"summary":{"title":"Summary","content":"<core message>"},'
-        '"impact":{"title":"Impact on Audience","content":"<audience impact>"},'
-        '"advertisement_effectiveness":{"title":"Advertisement Effectiveness","content":"<ad evaluation>"},'
-        '"audio_appeal":{"title":"Audio Appeal","content":"<delivery analysis>"},'
-        '"emotional_tone":{"title":"Emotional Tone","content":"<emotions conveyed>"},'
-        '"overall_assessment":{"title":"Overall Assessment","content":"<strengths and weaknesses>"},'
+        '{"transcript":{"title":"Transcript","content":"<full transcript text>"},'
+        '"summary":{"title":"Summary","content":"<at least 3 sentences: core message, key themes, and intended goal of the content>"},'
+        '"impact":{"title":"Impact on Audience","content":"<at least 3 sentences: how the audience feels, what they remember, and what action they are likely to take>"},'
+        '"advertisement_effectiveness":{"title":"Advertisement Effectiveness","content":"<at least 3 sentences: clarity of the message, persuasiveness, call to action strength, and areas to improve>"},'
+        '"audio_appeal":{"title":"Audio Appeal","content":"<at least 3 sentences: tone quality, pacing, energy level, and how the delivery supports or weakens the message>"},'
+        '"emotional_tone":{"title":"Emotional Tone","content":"<at least 3 sentences: primary emotions expressed, how they shift throughout, and their effect on the listener>"},'
+        '"overall_assessment":{"title":"Overall Assessment","content":"<at least 3 sentences: top 2 strengths, top 2 weaknesses, and one specific actionable recommendation>"},'
         '"listener_emotions":{"title":"Listener Emotions",'
         '"content":{"Happy":"X%","Sad":"Y%","Excited":"Z%","Neutral":"W%"},'
-        '"reason":{"Happy":"<reason>","Sad":"<reason>","Excited":"<reason>","Neutral":"<reason>"}}}'
+        '"reason":{"Happy":"<2 sentences>","Sad":"<2 sentences>","Excited":"<2 sentences>","Neutral":"<2 sentences>"}}}'
     )
 
     try:
@@ -402,9 +392,20 @@ def validate_and_process_prompt(user_prompt, analysis_result):
     summary_data   = analysis_result.get("summary", {})
 
     validation_prompt = (
-        f'Is this question related to audio/speech analysis or the analyzed media content?\n'
-        f'Question: "{user_prompt}"\n'
-        'Reply with ONLY raw JSON (no markdown): {"is_valid": true/false, "reason": "brief reason"}'
+        f'You are validating whether a question can be answered based on the analyzed video/audio content.\n\n'
+        f'You CAN answer questions about:\n'
+        f'- The spoken content, topic, message, or narrative of the video\n'
+        f'- The speaker\'s delivery, tone, emotion, or speech patterns\n'
+        f'- Advertisement or content effectiveness, impact, or audience appeal\n'
+        f'- Audio features: pitch, energy, pacing, clarity, filler words\n'
+        f'- Anything inferable from the transcript or audio analysis\n\n'
+        f'You CANNOT answer questions about:\n'
+        f'- Visual elements (graphics, colors, on-screen text, scenes, faces)\n'
+        f'- Things not inferable from audio or transcript alone\n'
+        f'- Completely unrelated topics (weather, cooking, math, etc.)\n\n'
+        f'Question: "{user_prompt}"\n\n'
+        f'Transcript (for context): "{transcript[:500]}"\n\n'
+        'Reply with ONLY raw JSON (no markdown): {{"is_valid": true/false, "reason": "brief reason"}}'
     )
 
     try:
@@ -416,18 +417,34 @@ def validate_and_process_prompt(user_prompt, analysis_result):
 
         if not val_result.get("is_valid", False):
             return {
-                "response": f"I can only help with questions related to the analyzed audio. {val_result.get('reason', '')}",
+                "response": (
+                    f"I can only answer questions about the video's spoken content, message, "
+                    f"audio delivery, or anything inferable from the transcript and audio analysis. "
+                    f"I cannot answer questions about visual elements or unrelated topics. "
+                    f"({val_result.get('reason', '')})"
+                ),
                 "error": "Invalid prompt"
             }
 
         context_prompt = (
-            f"Answer this question about the analyzed media.\n\n"
-            f"Transcript:\n{transcript[:2000]}\n\n"
-            f"Audio Metrics: tone={audio_analysis.get('inferred_tone','N/A')}, "
-            f"pitch={audio_analysis.get('avg_pitch_hz','N/A')}Hz, "
-            f"energy={audio_analysis.get('avg_energy_db','N/A')}dBFS, "
-            f"rate={audio_analysis.get('estimated_speaking_rate_wpm','N/A')}WPM\n\n"
+            f"You are an expert media analyst. Answer the following question based on the analyzed video content.\n\n"
+            f"Full Transcript:\n{transcript[:3000]}\n\n"
+            f"Additional Audio Data (use ONLY if directly relevant to the question):\n"
+            f"- Tone: {audio_analysis.get('inferred_tone', 'N/A')}\n"
+            f"- Pitch: {audio_analysis.get('avg_pitch_hz', 'N/A')} Hz "
+            f"(variability: {audio_analysis.get('pitch_variability', 'N/A')} Hz)\n"
+            f"- Energy: {audio_analysis.get('avg_energy_db', 'N/A')} dBFS\n"
+            f"- Speaking Rate: {audio_analysis.get('estimated_speaking_rate_wpm', 'N/A')} WPM\n"
+            f"- Silence Ratio: {audio_analysis.get('silence_ratio', 'N/A')}\n\n"
+            f"Summary Context: {json.dumps(summary_data)[:1000]}\n\n"
             f"Question: {user_prompt}\n\n"
+            f"Instructions:\n"
+            f"- Answer naturally based primarily on the transcript content and message.\n"
+            f"- Only mention audio metrics (tone, WPM, pitch, etc.) if the question is specifically about "
+            f"delivery, speech quality, or how something was said — NOT for general content questions.\n"
+            f"- If the question is about meaning, helpfulness, message, or topic, answer from the transcript alone.\n"
+            f"- If the question asks about visual elements you cannot observe, clarify that briefly.\n"
+            f"- Be conversational and direct. Do not pad the answer with unnecessary technical data.\n\n"
             'Reply with ONLY raw JSON (no markdown): {"response": "<your answer>"}'
         )
 
@@ -435,8 +452,8 @@ def validate_and_process_prompt(user_prompt, analysis_result):
         resp_text = response.text.strip().replace("```json", "").replace("```", "").strip()
 
         try:
-            rs    = resp_text.find("{")
-            re_   = resp_text.rfind("}") + 1
+            rs     = resp_text.find("{")
+            re_    = resp_text.rfind("}") + 1
             parsed = json.loads(resp_text[rs:re_])
             return {"response": parsed.get("response", resp_text)}
         except json.JSONDecodeError:
@@ -447,12 +464,8 @@ def validate_and_process_prompt(user_prompt, analysis_result):
         return {"response": f"Error processing your question: {str(e)}", "error": str(e)}
 
 
-# ─── Entry Point ──────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-
-    logging.info(f"sys.argv received: {sys.argv}")
-    logging.info(f"len(sys.argv): {len(sys.argv)}")
 
     if len(sys.argv) == 3 and sys.argv[1] == "--prompt":
         # Chat mode
@@ -482,14 +495,15 @@ if __name__ == "__main__":
             transcript            = transcribe_audio(audio_path)
             translated_transcript = translate_text(transcript, target_language="en")
             audio_analysis        = analyze_audio_features(audio_path)
-            emotion_analysis      = detect_voice_emotion(audio_path, audio_features=audio_analysis)
-            speech_clarity        = compute_speech_clarity(audio_path, translated_transcript, audio_features=audio_analysis)
-            summary               = generate_summary(translated_transcript, audio_analysis)
+            clean_audio_analysis  = audio_analysis if not audio_analysis.get("error") else {}
+            emotion_analysis      = detect_voice_emotion(audio_path, audio_features=clean_audio_analysis)
+            speech_clarity        = compute_speech_clarity(audio_path, translated_transcript, audio_features=clean_audio_analysis)
+            summary               = generate_summary(translated_transcript, clean_audio_analysis)
 
             _output_result({
                 "transcript":            transcript,
                 "translated_transcript": translated_transcript,
-                "audio_analysis":        audio_analysis,
+                "audio_analysis":        audio_analysis,   # keep original (with error) for debugging
                 "emotion_analysis":      emotion_analysis,
                 "speech_clarity":        speech_clarity,
                 "summary":               summary,

@@ -1,0 +1,20 @@
+# Core scientific stack
+numpy
+pandas
+scipy
+scikit-learn
+
+# Audio processing and transcription
+pydub
+librosa
+openai-whisper
+torch
+
+# AI and NLP helpers
+google-generativeai
+deep-translator
+python-dotenv
+
+# Note:
+# - pydub requires ffmpeg to be installed on your system.
+# - On macOS (Homebrew): brew install ffmpeg

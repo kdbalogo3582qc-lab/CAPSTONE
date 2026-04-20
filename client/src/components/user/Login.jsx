@@ -17,6 +17,9 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser]       = useState(null);  // { acc_id, acc_email }
   const [loading, setLoading] = useState(true);  // true while checking session on app load
 
+  // Always send auth cookies on cross-origin API requests.
+  axios.defaults.withCredentials = true;
+
   // On every app load, ask the server who is logged in using the httpOnly cookie
   useEffect(() => {
     axios
@@ -24,6 +27,45 @@ export const AuthProvider = ({ children }) => {
       .then((res) => setUser(res.data))
       .catch(() => setUser(null)) // cookie missing or expired — not logged in
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const interceptorId = axios.interceptors.response.use(
+      (response) => response,
+      async (error) => {
+        const originalRequest = error?.config;
+        const status = error?.response?.status;
+
+        if (!originalRequest || status !== 401 || originalRequest._retry) {
+          return Promise.reject(error);
+        }
+
+        const requestUrl = originalRequest.url || "";
+        const isAuthEndpoint =
+          requestUrl.includes("/login") ||
+          requestUrl.includes("/signup") ||
+          requestUrl.includes("/refresh") ||
+          requestUrl.includes("/logout");
+
+        if (isAuthEndpoint) {
+          return Promise.reject(error);
+        }
+
+        originalRequest._retry = true;
+
+        try {
+          await axios.post(`${ApiConfig.apiURL}/refresh`, {}, { withCredentials: true });
+          return axios(originalRequest);
+        } catch (refreshError) {
+          setUser(null);
+          return Promise.reject(refreshError);
+        }
+      }
+    );
+
+    return () => {
+      axios.interceptors.response.eject(interceptorId);
+    };
   }, []);
 
   const login  = (userData) => setUser(userData);

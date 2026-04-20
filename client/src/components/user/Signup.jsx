@@ -11,6 +11,9 @@ const Signup = () => {
   const [showPassword, setShowPassword] = useState(false);
   const togglePasswordVisibility = () => setShowPassword(!showPassword)
   const [data, setData] = useState({
+    fullName: '',
+    contactNumber: '',
+    address: '',
     email: '',
     password: '',
     confirmPassword: ''
@@ -18,18 +21,42 @@ const Signup = () => {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setData({
-      ...data,
-      [name]: value
-    })
+    if (name === 'contactNumber') {
+      const digitsOnly = value.replace(/\D/g, '');
+      setData({
+        ...data,
+        [name]: digitsOnly,
+      });
+    } else {
+      setData({
+        ...data,
+        [name]: value,
+      });
+    }
   }
 
   const dataCheck = () => {
-    if (data.password === '' || data.confirmPassword === '' || data.email === '') {
+    if (
+      data.fullName.trim() === '' ||
+      data.contactNumber.trim() === '' ||
+      data.address.trim() === '' ||
+      data.password === '' ||
+      data.confirmPassword === '' ||
+      data.email === ''
+    ) {
       Swal.fire({
         icon: 'error',
         title: 'Oops...',
         text: 'All fields are required',
+      })
+      return false
+    }
+
+    if (!/^\d{11}$/.test(data.contactNumber)) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Oops...',
+        text: 'Contact number must be exactly 11 digits',
       })
       return false
     }
@@ -79,7 +106,7 @@ const Signup = () => {
     e.preventDefault();
     try {
       if (dataCheck()) {
-        const response = await axios.post(`${ApiConfig.apiURL}signup`, data);
+        const response = await axios.post(`${ApiConfig.apiURL}/signup`, data);
 
         if (response.status === 201) {
           Swal.fire({
@@ -121,6 +148,50 @@ const Signup = () => {
             </div>
 
             <form className="signup-form">
+              <div className="form-group">
+                <label htmlFor="fullName" className="form-label">Full Name</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  name="fullName"
+                  id="fullName"
+                  placeholder="Enter your full name"
+                  onChange={(e) => handleChange(e)}
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="contactNumber" className="form-label">Contact Number</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  name="contactNumber"
+                  id="contactNumber"
+                  placeholder="09XXXXXXXXX"
+                  maxLength={11}
+                  onChange={(e) => {
+                    const digitsOnly = e.target.value.replace(/\D/g, '');
+                    setData({
+                      ...data,
+                      contactNumber: digitsOnly,
+                    });
+                  }}
+                  value={data.contactNumber}
+                />
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="address" className="form-label">Address</label>
+                <input
+                  className="form-input"
+                  type="text"
+                  name="address"
+                  id="address"
+                  placeholder="Enter your address"
+                  onChange={(e) => handleChange(e)}
+                />
+              </div>
+
               <div className="form-group">
                 <label htmlFor="email" className="form-label">Email Address</label>
                 <input
@@ -206,7 +277,7 @@ const StyledWrapper = styled.div`
 
     .signup-container {
         width: 100%;
-        max-width: 440px;
+      max-width: 520px;
     }
 
     .signup-card {
