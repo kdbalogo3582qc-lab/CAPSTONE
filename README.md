@@ -1,48 +1,62 @@
-# CAPSTONE Setup Guide (Client + Backend + Python)
+# CAPSTONE Setup Guide (Windows + macOS)
 
-This document explains how to set up the full CAPSTONE system from scratch.
+This guide sets up the full CAPSTONE system: frontend (React), backend (Node/Express), database (MySQL via XAMPP), and Python processing.
 
 ## 1. Prerequisites
 
-Install the following before starting:
+Install these first:
 
-- Node.js 18+ and npm
-- Python 3.10+ (with pip)
+- Node.js 18+ with npm
+- Python 3.10+ with pip
 - XAMPP (MySQL and phpMyAdmin)
 - ffmpeg (required for audio/video processing)
-- A Gemini API key
+- Gemini API key
 
 Optional:
 
-- OpenAI API key (used by `backend/gpt.js`)
+- OpenAI API key (used by backend/gpt.js)
 
-### macOS helpers
+Platform install hints:
+
+1. macOS (Homebrew)
 
 ```bash
-brew install ffmpeg
-brew install python
+brew install python ffmpeg
 ```
 
-## 2. Open Project Root
+2. Windows
 
-From terminal, go to the CAPSTONE root folder:
+- Install Python from python.org (check Add Python to PATH)
+- Install ffmpeg and add it to PATH
+
+## 2. Clone or Open the Project
+
+Use the CAPSTONE project root as working directory.
+
+1. macOS terminal
 
 ```bash
 cd /Applications/XAMPP/xamppfiles/htdocs/CAPSTONE
 ```
 
+2. Windows PowerShell
+
+```powershell
+cd C:\xampp\htdocs\CAPSTONE
+```
+
 ## 3. Set Up Database
 
-1. Start XAMPP and make sure MySQL is running.
+1. Start XAMPP and ensure MySQL is running.
 2. Open phpMyAdmin.
-3. Create a database named `py_project` (or use the one from import).
-4. Import `backend/py_project.sql` into that database.
+3. Create a database named py_project (or import and let SQL create it).
+4. Import [backend/py_project.sql](backend/py_project.sql).
 
-This creates the required tables such as `tbl_account`, `saved_videos`, and `action_plan_tasks`.
+Expected tables include tbl_account, tbl_account_details, saved_videos, and action_plan_tasks.
 
-## 4. Create Backend Environment File
+## 4. Configure Environment Variables
 
-Create `backend/.env` and set these values:
+Create [backend/.env](backend/.env) and add:
 
 ```env
 PORT=8800
@@ -63,52 +77,70 @@ OPENAI_API_KEY=your_openai_api_key
 NODE_ENV=development
 ```
 
-## 5. Install Backend Dependencies
+## 5. Install Node Dependencies
+
+1. Backend
 
 ```bash
 cd backend
 npm install
 ```
 
-## 6. Set Up Python Environment
-
-From project root:
+2. Client
 
 ```bash
-cd /Applications/XAMPP/xamppfiles/htdocs/CAPSTONE
+cd ../client
+npm install
+```
+
+## 6. Create and Activate Python Virtual Environment
+
+Run from the project root.
+
+1. macOS terminal
+
+```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install -r backend/requirements.txt
 ```
 
-Important:
+2. Windows PowerShell
 
-- `backend/index.js` uses `python3` for main analysis.
-- `backend/train_routes.js` uses `python` for model training.
-- Ensure both `python3` and `python` commands are available in your terminal.
-
-## 7. Install Client Dependencies
-
-```bash
-cd /Applications/XAMPP/xamppfiles/htdocs/CAPSTONE/client
-npm install
+```powershell
+py -m venv venv
+.\venv\Scripts\Activate.ps1
+pip install -r backend/requirements.txt
 ```
 
-## 8. Confirm Frontend API URL
+3. Windows Command Prompt
 
-Verify API base URL in `client/src/components/config/LocalConfigApi.jsx`:
+```cmd
+py -m venv venv
+venv\Scripts\activate.bat
+pip install -r backend/requirements.txt
+```
+
+## 7. Confirm Backend and Client Ports
+
+- Backend default port is 8800 (from .env).
+- Client uses http://localhost:3000.
+
+Check frontend API URL in [client/src/components/config/LocalConfigApi.jsx](client/src/components/config/LocalConfigApi.jsx):
 
 ```js
 export const ApiConfig = {
-	apiURL: 'http://localhost:8800'
+    apiURL: 'http://localhost:8800'
 }
 ```
 
-## 9. Run the System
+## 8. Run the App (Two Terminals)
 
-Use two terminals.
+Keep MySQL running in XAMPP.
 
-Terminal 1 (backend):
+1. Terminal A: backend
+
+macOS:
 
 ```bash
 cd /Applications/XAMPP/xamppfiles/htdocs/CAPSTONE
@@ -117,39 +149,67 @@ cd backend
 npm run dev
 ```
 
-Terminal 2 (client):
+Windows PowerShell:
+
+```powershell
+cd C:\xampp\htdocs\CAPSTONE
+.\venv\Scripts\Activate.ps1
+cd backend
+npm run dev
+```
+
+2. Terminal B: client
+
+macOS:
 
 ```bash
 cd /Applications/XAMPP/xamppfiles/htdocs/CAPSTONE/client
 npm start
 ```
 
-## 10. Access the App
+Windows PowerShell:
 
-- Client: http://localhost:3000
+```powershell
+cd C:\xampp\htdocs\CAPSTONE\client
+npm start
+```
+
+## 9. Open the System
+
+- Frontend: http://localhost:3000
 - Backend: http://localhost:8800
 
-## 11. Quick Verification Checklist
+## 10. Quick Verification Checklist
 
-- Backend terminal shows database connected.
-- Uploading video works without Python errors.
-- Transcription/analysis returns JSON result.
-- Login/signup flows can read and write to MySQL.
+- Backend logs show database connection success.
+- Signup/login works and data persists in MySQL.
+- Video upload works.
+- Analysis endpoint returns JSON response.
 
 ## Troubleshooting
 
-### Error: ffmpeg not found
+### ffmpeg not found
 
-Install ffmpeg and restart terminal.
+Install ffmpeg and ensure it is in PATH, then restart terminal.
 
-### Error: No API key found
+### No API key found
 
-Add `GEMINI_API_KEY` in `backend/.env` and restart backend.
+Set GEMINI_API_KEY in backend/.env and restart backend.
 
-### Error: DB connection failed
+### Database connection failed
 
-Check `DB_HOST`, `DB_USER`, `DB_PASSWORD`, and `DB_NAME` in `backend/.env`, and verify MySQL is running in XAMPP.
+Verify DB_HOST, DB_USER, DB_PASSWORD, DB_NAME in backend/.env and ensure MySQL is running.
 
-### Error: python command not found during training
+### python or python3 command not found
 
-Install Python so `python` is available, or update the spawn command in `backend/train_routes.js` to use `python3`.
+- On macOS, use python3.
+- On Windows, use py.
+- Ensure Python is added to PATH.
+
+### PowerShell script execution blocked
+
+Run PowerShell as Administrator once and allow local scripts:
+
+```powershell
+Set-ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
