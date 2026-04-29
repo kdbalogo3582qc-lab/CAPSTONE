@@ -186,7 +186,7 @@ router.post("/start", (req, res) => {
   terminalLog(`File    : ${C.white}${filePath}${C.reset}`);
 
   // ── Spawn Python ──────────────────────────────────────────────────────────
-  const pyProcess = spawn("python", ["./train_model.py", filePath]);
+  const pyProcess = spawn("../venv/bin/python", ["./train_model.py", filePath]);
 
   let lineBuffer = "";
 
