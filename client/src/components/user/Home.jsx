@@ -845,164 +845,220 @@ function Home() {
                                             <AnalyticsHeaderSub>Acoustic analysis · Emotion classification · Speech quality assessment</AnalyticsHeaderSub>
                                         </AnalyticsHeader>
 
-                                        {/* Emotion Detection */}
-                                        <AnalyticsPanel>
-                                            <AnalyticsPanelLabel>
-                                                <GiMicrophone size={13} style={{ opacity: 0.55 }} />
-                                                SECTION 01 — EMOTION DETECTION
-                                            </AnalyticsPanelLabel>
+                                        {/* ── No-dialogue guard: hide speech-specific panels when no voice was detected ── */}
+                                        {(() => {
+                                            const transcript = analysisResult?.transcript ?? '';
+                                            const hasNoDialogue =
+                                                transcript.trim() === '' ||
+                                                transcript.trim() === '[No spoken dialogue detected]';
 
-                                            {analysisResult.emotion_analysis ? (() => {
-                                                const ea = analysisResult.emotion_analysis;
-                                                const emotions = [
-                                                    { key: 'happy', label: 'Happy' },
-                                                    { key: 'neutral', label: 'Neutral' },
-                                                    { key: 'nervous', label: 'Nervous' },
-                                                    { key: 'angry', label: 'Angry' },
-                                                    { key: 'sad', label: 'Sad' },
-                                                ];
-                                                const dominant = ea.dominant_emotion ?? '';
+                                            if (hasNoDialogue) {
                                                 return (
-                                                    <>
-                                                        <EmotionTable>
-                                                            <EmotionTableHead>
-                                                                <tr>
-                                                                    <EmotionTh>Emotion</EmotionTh>
-                                                                    <EmotionTh>Distribution</EmotionTh>
-                                                                    <EmotionTh $right>Score</EmotionTh>
-                                                                    <EmotionTh $right>Status</EmotionTh>
-                                                                </tr>
-                                                            </EmotionTableHead>
-                                                            <tbody>
-                                                                {emotions.map(({ key, label }) => {
-                                                                    const val = ea[key] ?? 0;
-                                                                    const pct = Math.round(val * 100);
-                                                                    const isDominant = key === dominant;
-                                                                    return (
-                                                                        <EmotionTr key={key} $isDominant={isDominant}>
-                                                                            <EmotionTd>
-                                                                                <EmotionLabelCell $isDominant={isDominant}>{label}</EmotionLabelCell>
-                                                                            </EmotionTd>
-                                                                            <EmotionTd $wide>
-                                                                                <EmotionBarTrack>
-                                                                                    <EmotionBarFill $pct={pct} $isDominant={isDominant} />
-                                                                                </EmotionBarTrack>
-                                                                            </EmotionTd>
-                                                                            <EmotionTd $right>
-                                                                                <EmotionPct $isDominant={isDominant}>{pct}%</EmotionPct>
-                                                                            </EmotionTd>
-                                                                            <EmotionTd $right>
-                                                                                {isDominant
-                                                                                    ? <EmotionDominantTag>Dominant</EmotionDominantTag>
-                                                                                    : <EmotionNullTag>—</EmotionNullTag>}
-                                                                            </EmotionTd>
-                                                                        </EmotionTr>
-                                                                    );
-                                                                })}
-                                                            </tbody>
-                                                        </EmotionTable>
-                                                        <AnalyticsFootnote>
-                                                            Dominant emotion classified as <strong style={{ color: '#1d2939', textTransform: 'capitalize' }}>{dominant || 'N/A'}</strong> based on MFCC, pitch, energy, and spectral contrast features.
-                                                        </AnalyticsFootnote>
-                                                    </>
+                                                    <NoDialogueNotice>
+                                                        <NoDialogueIcon>
+                                                            <GiMicrophone size={32} style={{ opacity: 0.35 }} />
+                                                        </NoDialogueIcon>
+                                                        <NoDialogueTitle>No Voice Detected</NoDialogueTitle>
+                                                        <NoDialogueText>
+                                                            This video contains no spoken dialogue — it appears to be music,
+                                                            sound effects, or a visual-only composition. Emotion classification
+                                                            and speech clarity metrics require a voice signal and are not
+                                                            applicable here.
+                                                        </NoDialogueText>
+                                                        {analysisResult.audio_analysis && (
+                                                            <>
+                                                                <NoDialogueSub>Audio signal metrics are still available below.</NoDialogueSub>
+                                                                <VisualMetricsGrid style={{ marginTop: 16 }}>
+                                                                    <MetricCard>
+                                                                        <MetricLabel>Inferred Tone</MetricLabel>
+                                                                        <ToneBadge>{analysisResult.audio_analysis.inferred_tone ?? 'N/A'}</ToneBadge>
+                                                                    </MetricCard>
+                                                                    <MetricCard>
+                                                                        <MetricLabel>Avg Energy</MetricLabel>
+                                                                        <MetricValue>{analysisResult.audio_analysis.avg_energy_db ?? 'N/A'} <MetricUnit>dBFS</MetricUnit></MetricValue>
+                                                                    </MetricCard>
+                                                                    <MetricCard>
+                                                                        <MetricLabel>Tempo</MetricLabel>
+                                                                        <MetricValue>{analysisResult.audio_analysis.tempo_bpm ?? 'N/A'} <MetricUnit>BPM</MetricUnit></MetricValue>
+                                                                    </MetricCard>
+                                                                    <MetricCard>
+                                                                        <MetricLabel>Silence Ratio</MetricLabel>
+                                                                        <MetricValue>
+                                                                            {analysisResult.audio_analysis.silence_ratio != null
+                                                                                ? (analysisResult.audio_analysis.silence_ratio * 100).toFixed(1) + '%'
+                                                                                : 'N/A'}
+                                                                        </MetricValue>
+                                                                    </MetricCard>
+                                                                </VisualMetricsGrid>
+                                                            </>
+                                                        )}
+                                                    </NoDialogueNotice>
                                                 );
-                                            })() : (
-                                                <AnalyticsEmpty>No emotion data available.</AnalyticsEmpty>
-                                            )}
-                                        </AnalyticsPanel>
+                                            }
 
-                                        {/* Speech Clarity */}
-                                        <AnalyticsPanel>
-                                            <AnalyticsPanelLabel>
-                                                <FaWaveSquare size={11} style={{ opacity: 0.55 }} />
-                                                SECTION 02 — SPEECH CLARITY ASSESSMENT
-                                            </AnalyticsPanelLabel>
+                                            return (
+                                                <>
+                                                    {/* Emotion Detection */}
+                                                    <AnalyticsPanel>
+                                                        <AnalyticsPanelLabel>
+                                                            <GiMicrophone size={13} style={{ opacity: 0.55 }} />
+                                                            SECTION 01 — EMOTION DETECTION
+                                                        </AnalyticsPanelLabel>
 
-                                            {analysisResult.speech_clarity ? (() => {
-                                                const sc = analysisResult.speech_clarity;
-                                                const score = sc.overall_score ?? 0;
-                                                const scoreColor = score >= 80 ? '#166534' : score >= 60 ? '#92400e' : '#991b1b';
-                                                const scoreBg = score >= 80 ? 'rgba(22,101,52,0.08)' : score >= 60 ? 'rgba(146,64,14,0.08)' : 'rgba(153,27,27,0.08)';
-                                                const scoreBorder = score >= 80 ? 'rgba(22,101,52,0.2)' : score >= 60 ? 'rgba(146,64,14,0.2)' : 'rgba(153,27,27,0.2)';
-                                                const scoreLabel = score >= 80 ? 'Excellent' : score >= 60 ? 'Satisfactory' : 'Below Standard';
-                                                return (
-                                                    <>
-                                                        <OverallScoreRow>
-                                                            <OverallScoreBlock $bg={scoreBg} $border={scoreBorder}>
-                                                                <OverallScoreNum $color={scoreColor}>{score}<OverallScoreDenom>/100</OverallScoreDenom></OverallScoreNum>
-                                                                <OverallScoreLabel $color={scoreColor}>{scoreLabel}</OverallScoreLabel>
-                                                            </OverallScoreBlock>
-                                                            <OverallScoreBar>
-                                                                <OverallScoreBarLabel>Overall Clarity Score</OverallScoreBarLabel>
-                                                                <OverallScoreBarTrack>
-                                                                    <OverallScoreBarFill $pct={score} $color={scoreColor} />
-                                                                </OverallScoreBarTrack>
-                                                                <OverallScoreBarLegend>
-                                                                    <span>0</span>
-                                                                    <span>Below Standard · &lt;60</span>
-                                                                    <span>Satisfactory · 60–79</span>
-                                                                    <span>Excellent · 80+</span>
-                                                                </OverallScoreBarLegend>
-                                                            </OverallScoreBar>
-                                                        </OverallScoreRow>
+                                                        {analysisResult.emotion_analysis ? (() => {
+                                                            const ea = analysisResult.emotion_analysis;
+                                                            const emotions = [
+                                                                { key: 'happy', label: 'Happy' },
+                                                                { key: 'neutral', label: 'Neutral' },
+                                                                { key: 'nervous', label: 'Nervous' },
+                                                                { key: 'angry', label: 'Angry' },
+                                                                { key: 'sad', label: 'Sad' },
+                                                            ];
+                                                            const dominant = ea.dominant_emotion ?? '';
+                                                            return (
+                                                                <>
+                                                                    <EmotionTable>
+                                                                        <EmotionTableHead>
+                                                                            <tr>
+                                                                                <EmotionTh>Emotion</EmotionTh>
+                                                                                <EmotionTh>Distribution</EmotionTh>
+                                                                                <EmotionTh $right>Score</EmotionTh>
+                                                                                <EmotionTh $right>Status</EmotionTh>
+                                                                            </tr>
+                                                                        </EmotionTableHead>
+                                                                        <tbody>
+                                                                            {emotions.map(({ key, label }) => {
+                                                                                const val = ea[key] ?? 0;
+                                                                                const pct = Math.round(val * 100);
+                                                                                const isDominant = key === dominant;
+                                                                                return (
+                                                                                    <EmotionTr key={key} $isDominant={isDominant}>
+                                                                                        <EmotionTd>
+                                                                                            <EmotionLabelCell $isDominant={isDominant}>{label}</EmotionLabelCell>
+                                                                                        </EmotionTd>
+                                                                                        <EmotionTd $wide>
+                                                                                            <EmotionBarTrack>
+                                                                                                <EmotionBarFill $pct={pct} $isDominant={isDominant} />
+                                                                                            </EmotionBarTrack>
+                                                                                        </EmotionTd>
+                                                                                        <EmotionTd $right>
+                                                                                            <EmotionPct $isDominant={isDominant}>{pct}%</EmotionPct>
+                                                                                        </EmotionTd>
+                                                                                        <EmotionTd $right>
+                                                                                            {isDominant
+                                                                                                ? <EmotionDominantTag>Dominant</EmotionDominantTag>
+                                                                                                : <EmotionNullTag>—</EmotionNullTag>}
+                                                                                        </EmotionTd>
+                                                                                    </EmotionTr>
+                                                                                );
+                                                                            })}
+                                                                        </tbody>
+                                                                    </EmotionTable>
+                                                                    <AnalyticsFootnote>
+                                                                        Dominant emotion classified as <strong style={{ color: '#1d2939', textTransform: 'capitalize' }}>{dominant || 'N/A'}</strong> based on MFCC, pitch, energy, and spectral contrast features.
+                                                                    </AnalyticsFootnote>
+                                                                </>
+                                                            );
+                                                        })() : (
+                                                            <AnalyticsEmpty>No emotion data available.</AnalyticsEmpty>
+                                                        )}
+                                                    </AnalyticsPanel>
 
-                                                        <ClarityTable>
-                                                            <ClarityTableHead>
-                                                                <tr>
-                                                                    <ClarityTh>Metric</ClarityTh>
-                                                                    <ClarityTh>Value</ClarityTh>
-                                                                    <ClarityTh>Indicator</ClarityTh>
-                                                                    <ClarityTh $right>Rating</ClarityTh>
-                                                                </tr>
-                                                            </ClarityTableHead>
-                                                            <tbody>
-                                                                <ClarityTr>
-                                                                    <ClarityTd><ClarityMetricName>Speech Pace</ClarityMetricName></ClarityTd>
-                                                                    <ClarityTd><ClarityMetricVal>{sc.speech_pace_wpm ?? 'N/A'} <ClarityUnit>WPM</ClarityUnit></ClarityMetricVal></ClarityTd>
-                                                                    <ClarityTd $wide><ClarityBarTrack><ClarityBarFill $pct={Math.min((sc.speech_pace_wpm ?? 0) / 200 * 100, 100)} /></ClarityBarTrack></ClarityTd>
-                                                                    <ClarityTd $right><ClarityRatingTag $rating={sc.pace_rating}>{sc.pace_rating ?? 'N/A'}</ClarityRatingTag></ClarityTd>
-                                                                </ClarityTr>
-                                                                <ClarityTr>
-                                                                    <ClarityTd><ClarityMetricName>Filler Words</ClarityMetricName></ClarityTd>
-                                                                    <ClarityTd><ClarityMetricVal>{sc.filler_words ?? 0} <ClarityUnit>detected</ClarityUnit></ClarityMetricVal></ClarityTd>
-                                                                    <ClarityTd $wide><ClarityBarTrack><ClarityBarFill $pct={Math.max(0, 100 - (sc.filler_words ?? 0) * 8)} /></ClarityBarTrack></ClarityTd>
-                                                                    <ClarityTd $right>
-                                                                        <ClarityRatingTag $rating={(sc.filler_words ?? 0) <= 3 ? 'Ideal' : (sc.filler_words ?? 0) <= 8 ? 'Fast' : 'Too Fast'}>
-                                                                            {(sc.filler_words ?? 0) <= 3 ? 'Low' : (sc.filler_words ?? 0) <= 8 ? 'Moderate' : 'High'}
-                                                                        </ClarityRatingTag>
-                                                                    </ClarityTd>
-                                                                </ClarityTr>
-                                                                <ClarityTr>
-                                                                    <ClarityTd><ClarityMetricName>Tone Stability</ClarityMetricName></ClarityTd>
-                                                                    <ClarityTd><ClarityMetricVal>{sc.tone_stability ?? 'N/A'} <ClarityUnit>/ 100</ClarityUnit></ClarityMetricVal></ClarityTd>
-                                                                    <ClarityTd $wide><ClarityBarTrack><ClarityBarFill $pct={sc.tone_stability ?? 0} /></ClarityBarTrack></ClarityTd>
-                                                                    <ClarityTd $right>
-                                                                        <ClarityRatingTag $rating={(sc.tone_stability ?? 0) >= 75 ? 'Ideal' : (sc.tone_stability ?? 0) >= 50 ? 'Fast' : 'Too Fast'}>
-                                                                            {(sc.tone_stability ?? 0) >= 75 ? 'Stable' : (sc.tone_stability ?? 0) >= 50 ? 'Variable' : 'Unstable'}
-                                                                        </ClarityRatingTag>
-                                                                    </ClarityTd>
-                                                                </ClarityTr>
-                                                                <ClarityTr>
-                                                                    <ClarityTd><ClarityMetricName>Audio Quality</ClarityMetricName></ClarityTd>
-                                                                    <ClarityTd><ClarityMetricVal>{sc.audio_quality ?? 'N/A'} <ClarityUnit>/ 100</ClarityUnit></ClarityMetricVal></ClarityTd>
-                                                                    <ClarityTd $wide><ClarityBarTrack><ClarityBarFill $pct={sc.audio_quality ?? 0} /></ClarityBarTrack></ClarityTd>
-                                                                    <ClarityTd $right>
-                                                                        <ClarityRatingTag $rating={(sc.audio_quality ?? 0) >= 75 ? 'Ideal' : (sc.audio_quality ?? 0) >= 50 ? 'Fast' : 'Too Fast'}>
-                                                                            {(sc.audio_quality ?? 0) >= 75 ? 'Clear' : (sc.audio_quality ?? 0) >= 50 ? 'Acceptable' : 'Poor'}
-                                                                        </ClarityRatingTag>
-                                                                    </ClarityTd>
-                                                                </ClarityTr>
-                                                            </tbody>
-                                                        </ClarityTable>
-                                                        <AnalyticsFootnote>
-                                                            Score computed from speech pace, filler word frequency, pitch/energy variance, and spectral signal quality.
-                                                        </AnalyticsFootnote>
-                                                    </>
-                                                );
-                                            })() : (
-                                                <AnalyticsEmpty>No speech clarity data available.</AnalyticsEmpty>
-                                            )}
-                                        </AnalyticsPanel>
+                                                    {/* Speech Clarity */}
+                                                    <AnalyticsPanel>
+                                                        <AnalyticsPanelLabel>
+                                                            <FaWaveSquare size={11} style={{ opacity: 0.55 }} />
+                                                            SECTION 02 — SPEECH CLARITY ASSESSMENT
+                                                        </AnalyticsPanelLabel>
+
+                                                        {analysisResult.speech_clarity ? (() => {
+                                                            const sc = analysisResult.speech_clarity;
+                                                            const score = sc.overall_score ?? 0;
+                                                            const scoreColor = score >= 80 ? '#166534' : score >= 60 ? '#92400e' : '#991b1b';
+                                                            const scoreBg = score >= 80 ? 'rgba(22,101,52,0.08)' : score >= 60 ? 'rgba(146,64,14,0.08)' : 'rgba(153,27,27,0.08)';
+                                                            const scoreBorder = score >= 80 ? 'rgba(22,101,52,0.2)' : score >= 60 ? 'rgba(146,64,14,0.2)' : 'rgba(153,27,27,0.2)';
+                                                            const scoreLabel = score >= 80 ? 'Excellent' : score >= 60 ? 'Satisfactory' : 'Below Standard';
+                                                            return (
+                                                                <>
+                                                                    <OverallScoreRow>
+                                                                        <OverallScoreBlock $bg={scoreBg} $border={scoreBorder}>
+                                                                            <OverallScoreNum $color={scoreColor}>{score}<OverallScoreDenom>/100</OverallScoreDenom></OverallScoreNum>
+                                                                            <OverallScoreLabel $color={scoreColor}>{scoreLabel}</OverallScoreLabel>
+                                                                        </OverallScoreBlock>
+                                                                        <OverallScoreBar>
+                                                                            <OverallScoreBarLabel>Overall Clarity Score</OverallScoreBarLabel>
+                                                                            <OverallScoreBarTrack>
+                                                                                <OverallScoreBarFill $pct={score} $color={scoreColor} />
+                                                                            </OverallScoreBarTrack>
+                                                                            <OverallScoreBarLegend>
+                                                                                <span>0</span>
+                                                                                <span>Below Standard · &lt;60</span>
+                                                                                <span>Satisfactory · 60–79</span>
+                                                                                <span>Excellent · 80+</span>
+                                                                            </OverallScoreBarLegend>
+                                                                        </OverallScoreBar>
+                                                                    </OverallScoreRow>
+
+                                                                    <ClarityTable>
+                                                                        <ClarityTableHead>
+                                                                            <tr>
+                                                                                <ClarityTh>Metric</ClarityTh>
+                                                                                <ClarityTh>Value</ClarityTh>
+                                                                                <ClarityTh>Indicator</ClarityTh>
+                                                                                <ClarityTh $right>Rating</ClarityTh>
+                                                                            </tr>
+                                                                        </ClarityTableHead>
+                                                                        <tbody>
+                                                                            <ClarityTr>
+                                                                                <ClarityTd><ClarityMetricName>Speech Pace</ClarityMetricName></ClarityTd>
+                                                                                <ClarityTd><ClarityMetricVal>{sc.speech_pace_wpm ?? 'N/A'} <ClarityUnit>WPM</ClarityUnit></ClarityMetricVal></ClarityTd>
+                                                                                <ClarityTd $wide><ClarityBarTrack><ClarityBarFill $pct={Math.min((sc.speech_pace_wpm ?? 0) / 200 * 100, 100)} /></ClarityBarTrack></ClarityTd>
+                                                                                <ClarityTd $right><ClarityRatingTag $rating={sc.pace_rating}>{sc.pace_rating ?? 'N/A'}</ClarityRatingTag></ClarityTd>
+                                                                            </ClarityTr>
+                                                                            <ClarityTr>
+                                                                                <ClarityTd><ClarityMetricName>Filler Words</ClarityMetricName></ClarityTd>
+                                                                                <ClarityTd><ClarityMetricVal>{sc.filler_words ?? 0} <ClarityUnit>detected</ClarityUnit></ClarityMetricVal></ClarityTd>
+                                                                                <ClarityTd $wide><ClarityBarTrack><ClarityBarFill $pct={Math.max(0, 100 - (sc.filler_words ?? 0) * 8)} /></ClarityBarTrack></ClarityTd>
+                                                                                <ClarityTd $right>
+                                                                                    <ClarityRatingTag $rating={(sc.filler_words ?? 0) <= 3 ? 'Ideal' : (sc.filler_words ?? 0) <= 8 ? 'Fast' : 'Too Fast'}>
+                                                                                        {(sc.filler_words ?? 0) <= 3 ? 'Low' : (sc.filler_words ?? 0) <= 8 ? 'Moderate' : 'High'}
+                                                                                    </ClarityRatingTag>
+                                                                                </ClarityTd>
+                                                                            </ClarityTr>
+                                                                            <ClarityTr>
+                                                                                <ClarityTd><ClarityMetricName>Tone Stability</ClarityMetricName></ClarityTd>
+                                                                                <ClarityTd><ClarityMetricVal>{sc.tone_stability ?? 'N/A'} <ClarityUnit>/ 100</ClarityUnit></ClarityMetricVal></ClarityTd>
+                                                                                <ClarityTd $wide><ClarityBarTrack><ClarityBarFill $pct={sc.tone_stability ?? 0} /></ClarityBarTrack></ClarityTd>
+                                                                                <ClarityTd $right>
+                                                                                    <ClarityRatingTag $rating={(sc.tone_stability ?? 0) >= 75 ? 'Ideal' : (sc.tone_stability ?? 0) >= 50 ? 'Fast' : 'Too Fast'}>
+                                                                                        {(sc.tone_stability ?? 0) >= 75 ? 'Stable' : (sc.tone_stability ?? 0) >= 50 ? 'Variable' : 'Unstable'}
+                                                                                    </ClarityRatingTag>
+                                                                                </ClarityTd>
+                                                                            </ClarityTr>
+                                                                            <ClarityTr>
+                                                                                <ClarityTd><ClarityMetricName>Audio Quality</ClarityMetricName></ClarityTd>
+                                                                                <ClarityTd><ClarityMetricVal>{sc.audio_quality ?? 'N/A'} <ClarityUnit>/ 100</ClarityUnit></ClarityMetricVal></ClarityTd>
+                                                                                <ClarityTd $wide><ClarityBarTrack><ClarityBarFill $pct={sc.audio_quality ?? 0} /></ClarityBarTrack></ClarityTd>
+                                                                                <ClarityTd $right>
+                                                                                    <ClarityRatingTag $rating={(sc.audio_quality ?? 0) >= 75 ? 'Ideal' : (sc.audio_quality ?? 0) >= 50 ? 'Fast' : 'Too Fast'}>
+                                                                                        {(sc.audio_quality ?? 0) >= 75 ? 'Clear' : (sc.audio_quality ?? 0) >= 50 ? 'Acceptable' : 'Poor'}
+                                                                                    </ClarityRatingTag>
+                                                                                </ClarityTd>
+                                                                            </ClarityTr>
+                                                                        </tbody>
+                                                                    </ClarityTable>
+                                                                    <AnalyticsFootnote>
+                                                                        Score computed from speech pace, filler word frequency, pitch/energy variance, and spectral signal quality.
+                                                                    </AnalyticsFootnote>
+                                                                </>
+                                                            );
+                                                        })() : (
+                                                            <AnalyticsEmpty>No speech clarity data available.</AnalyticsEmpty>
+                                                        )}
+                                                    </AnalyticsPanel>
+                                                </>
+                                            );
+                                        })()}
                                     </ContentSection>
                                 )}
                             </ContentCard>
@@ -1974,6 +2030,47 @@ const ClarityRatingTag = styled.span`
             p.$rating === 'Fast' ? 'rgba(146,64,14,0.2)' :
                 p.$rating === 'Too Fast' ? 'rgba(153,27,27,0.2)' :
                     'rgba(0,0,0,0.1)'};
+`;
+
+const NoDialogueNotice = styled.div`
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 48px 32px;
+    background: rgba(0,0,0,0.015);
+    border: 1px dashed rgba(0,0,0,0.12);
+    border-radius: 8px;
+    gap: 10px;
+`;
+
+const NoDialogueIcon = styled.div`
+    margin-bottom: 4px;
+    color: #9ca3af;
+`;
+
+const NoDialogueTitle = styled.div`
+    font-size: 1rem;
+    font-weight: 650;
+    color: #374151;
+    letter-spacing: -0.01em;
+`;
+
+const NoDialogueText = styled.div`
+    font-size: 0.875rem;
+    color: #6b7280;
+    line-height: 1.65;
+    max-width: 460px;
+`;
+
+const NoDialogueSub = styled.div`
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #9ca3af;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-top: 8px;
 `;
 
 export default Home;
