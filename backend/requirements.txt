@@ -11,10 +11,7 @@ openai-whisper
 torch
 
 # AI and NLP helpers
-google-generativeai
+google-genai
+ffmpeg-python
 deep-translator
 python-dotenv
-
-# Note:
-# - pydub requires ffmpeg to be installed on your system.
-# - On macOS (Homebrew): brew install ffmpeg

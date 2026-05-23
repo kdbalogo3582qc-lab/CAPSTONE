@@ -2,16 +2,17 @@ import os
 import logging
 import sys
 import json
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 import warnings
 
 sys.stdout.reconfigure(line_buffering=True)
 
 warnings.filterwarnings("ignore")
-os.environ["TF_CPP_MIN_LOG_LEVEL"]    = "2"
-os.environ["GRPC_VERBOSITY"]          = "NONE"
-os.environ["TOKENIZERS_PARALLELISM"]  = "false"
+os.environ["TF_CPP_MIN_LOG_LEVEL"]   = "2"
+os.environ["GRPC_VERBOSITY"]         = "NONE"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,12 +30,39 @@ def _output_result(data):
     sys.stdout.flush()
 
 
+import ffmpeg
+
+def sanitize_media_file(input_path):
+    output_path = os.path.splitext(input_path)[0] + "_sanitized.mp4"
+    try:
+        logging.info("Normalizing video container formats via FFmpeg...")
+        (
+            ffmpeg
+            .input(input_path)
+            .output(
+                output_path,
+                vcodec='libx264',
+                acodec='aac',
+                pix_fmt='yuv420p',
+                vf='scale=trunc(iw/2)*2:trunc(ih/2)*2',
+                movflags='+faststart',
+                loglevel='error'
+            )
+            .overwrite_output()
+            .run()
+        )
+        return output_path
+    except Exception as e:
+        logging.error(f"FFmpeg normalization failed: {e}")
+        return input_path
+
+
 load_dotenv()
 
 api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("API_KEY")
 if api_key:
     try:
-        genai.configure(api_key=api_key)
+        client = genai.Client(api_key=api_key)
         logging.info("API configured successfully")
     except Exception as e:
         logging.error(f"Failed to configure API: {e}")
@@ -46,6 +74,8 @@ else:
     sys.exit(1)
 
 
+MODEL_ID = "gemini-3.1-flash-lite"
+
 
 def transcribe_and_translate_audio(video_path):
     """
@@ -53,22 +83,23 @@ def transcribe_and_translate_audio(video_path):
     transcript, translation, audio features, emotion, clarity, and summary.
     """
     uploaded_file = None
+    working_video_path = video_path
     try:
+        if not os.path.exists(video_path) or os.path.getsize(video_path) == 0:
+            raise RuntimeError(f"Video file missing or empty: {video_path}")
+
         file_size_kb = os.path.getsize(video_path) / 1024
         logging.info(f"Uploading MP4 video ({file_size_kb:.1f} KB) to Files API...")
-        uploaded_file = genai.upload_file(video_path, mime_type="video/mp4")
 
-        import time
-        waited = 0
-        while uploaded_file.state.name == "PROCESSING" and waited < 60:
-            time.sleep(1 if waited < 10 else 2)
-            waited += 1 if waited < 10 else 2
-            uploaded_file = genai.get_file(uploaded_file.name)
-        if uploaded_file.state.name != "ACTIVE":
-            raise RuntimeError(f"File not ACTIVE after {waited}s: {uploaded_file.state.name}")
+        working_video_path = sanitize_media_file(video_path)
+        file_size_kb = os.path.getsize(working_video_path) / 1024
+        logging.info(f"Sending video inline as base64 ({file_size_kb:.1f} KB)...")
 
-        logging.info("Upload complete. Running analysis...")
-        model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
+        import base64
+        with open(working_video_path, "rb") as vf:
+            video_bytes = base64.b64encode(vf.read()).decode("utf-8")
+
+        logging.info("Video encoded. Running analysis...")
 
         prompt = """You are an expert multimodal analyst for Filipino and Southeast Asian video advertisements.
 
@@ -193,7 +224,14 @@ RETURN FORMAT — copy this structure exactly, fill all values:
   }
 }"""
 
-        response  = model.generate_content([uploaded_file, prompt])
+        response = client.models.generate_content(
+            model=MODEL_ID,
+            contents=[
+                types.Part.from_bytes(data=base64.b64decode(video_bytes), mime_type="video/mp4"),
+                prompt
+            ]
+        )
+
         json_text = response.text.strip().replace("```json", "").replace("```", "").strip()
         start = json_text.find("{")
         end   = json_text.rfind("}") + 1
@@ -230,11 +268,11 @@ RETURN FORMAT — copy this structure exactly, fill all values:
         raise
 
     finally:
-        if uploaded_file:
+        pass  # No Files API upload to clean up
+        if working_video_path != video_path:
             try:
-                genai.delete_file(uploaded_file.name)
-                logging.info(f"Deleted uploaded file: {uploaded_file.name}")
-            except Exception:
+                os.remove(working_video_path)
+            except OSError:
                 pass
 
 
@@ -243,14 +281,13 @@ def _gemini_translate(text, detected_language):
     try:
         if detected_language in ("en", "english"):
             return text
-        model  = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
         prompt = (
             f"Translate the following advertisement transcript from {detected_language} to natural, "
             f"idiomatic English. Preserve humor, tone, slang, and ad intent. "
             f"Output ONLY the translated text, no labels or markdown.\n\n"
             f"TRANSCRIPT:\n{text}"
         )
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(model=MODEL_ID, contents=prompt)
         return response.text.strip() or text
     except Exception:
         return text
@@ -260,8 +297,6 @@ def _gemini_translate(text, detected_language):
 
 def validate_and_process_prompt(user_prompt, analysis_result):
     """Validate prompt relevance then generate a contextual response with intent-aware matching."""
-    model = genai.GenerativeModel("gemini-3.1-flash-lite-preview")
-
     transcript     = analysis_result.get("translated_transcript", analysis_result.get("transcript", ""))
     audio_analysis = analysis_result.get("audio_analysis", {})
     summary_data   = analysis_result.get("summary", {})
@@ -296,7 +331,7 @@ def validate_and_process_prompt(user_prompt, analysis_result):
     )
 
     try:
-        val_resp   = model.generate_content(validation_prompt)
+        val_resp   = client.models.generate_content(model=MODEL_ID, contents=validation_prompt)
         val_text   = val_resp.text.strip().replace("```json", "").replace("```", "").strip()
         val_start  = val_text.find("{")
         val_end    = val_text.rfind("}") + 1
@@ -306,7 +341,7 @@ def validate_and_process_prompt(user_prompt, analysis_result):
             return {
                 "response": (
                     f"That question seems to be outside what I can analyze from this video. "
-                    f"I can answer questions about the video\'s content, message, target audience, tone, "
+                    f"I can answer questions about the video's content, message, target audience, tone, "
                     f"effectiveness, or anything inferable from the transcript. "
                     f"Could you rephrase or ask something more specific about the video?"
                 ),
@@ -339,7 +374,7 @@ def validate_and_process_prompt(user_prompt, analysis_result):
             'Reply with ONLY raw JSON (no markdown): {"response": "<your answer>"}'
         )
 
-        response  = model.generate_content(context_prompt)
+        response  = client.models.generate_content(model=MODEL_ID, contents=context_prompt)
         resp_text = response.text.strip().replace("```json", "").replace("```", "").strip()
 
         try:
@@ -353,7 +388,6 @@ def validate_and_process_prompt(user_prompt, analysis_result):
     except Exception as e:
         logging.error(f"Error in validate_and_process_prompt: {e}")
         return {"response": f"Error processing your question: {str(e)}", "error": str(e)}
-
 
 
 if __name__ == "__main__":
