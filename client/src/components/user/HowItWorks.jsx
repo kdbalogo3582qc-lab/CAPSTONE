@@ -85,7 +85,7 @@ function HowItWorks() {
                 <ContentWrapper>
                     <HeroCard>
                         <HeroLabel>Product Walkthrough</HeroLabel>
-                        <HeroTitle>How Video Analyzer Works</HeroTitle>
+                        <HeroTitle>How KATHA Works</HeroTitle>
                         <HeroText>
                             A streamlined workflow from upload to insight. Designed for creators, teams, and reviewers
                             who need fast, reliable feedback on video effectiveness.

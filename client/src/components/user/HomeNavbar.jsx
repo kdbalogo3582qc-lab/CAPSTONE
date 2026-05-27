@@ -13,7 +13,7 @@ function HomeNavbar() {
       <nav className="home-navbar flex justify-between items-center w-full max-w-6xl py-4 px-6 md:px-10 bg-white rounded-full shadow-md mt-4 relative">
         <div className="home-navbar-left flex items-center gap-2">
           <img src={Logo} alt="Logo" className="home-navbar-logo h-[30px] w-[30px]" />
-          <span className="home-navbar-title font-medium text-sm md:text-base">VideoAnalyzer</span>
+          <span className="home-navbar-title font-medium text-sm md:text-base">KATHA</span>
         </div>
 
         {/* Desktop Navigation */}

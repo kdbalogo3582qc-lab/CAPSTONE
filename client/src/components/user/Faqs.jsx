@@ -10,9 +10,9 @@ const FAQ_ITEMS = [
     {
         id: 1,
         category: "Platform",
-        question: "What is Video Analyzer?",
+        question: "What is KATHA?",
         answer:
-            "Video Analyzer is a workspace for evaluating uploaded video presentations. It summarizes your message, estimates audience reaction, and gives practical recommendations so you can refine delivery and content before publishing.",
+            "KATHA is a workspace for evaluating uploaded video presentations. It summarizes your message, estimates audience reaction, and gives practical recommendations so you can refine delivery and content before publishing.",
     },
     {
         id: 2,
@@ -191,7 +191,7 @@ function Faqs() {
                             <p>
                                 Reach support for account, upload, or technical concerns that require manual help.
                             </p>
-                            <HelpButton href="mailto:support@videoanalyzer.local">Contact Support</HelpButton>
+                            <HelpButton href="mailto:support@katha.local">Contact Support</HelpButton>
                         </HelpPanel>
 
                         <HelpPanel>

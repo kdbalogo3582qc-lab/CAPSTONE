@@ -179,7 +179,7 @@ const Login = () => {
 
   return (
     <div style={{backgroundColor: "#f5f5f7"}}>
-      <title>Sign In - Video Analyzer</title>
+      <title>Sign In - KATHA</title>
       <HomeNavbar />
       <StyledWrapper>
         <div className="login-container">

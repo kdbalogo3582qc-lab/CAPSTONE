@@ -32,7 +32,7 @@ function Navbar({ user, activePath }) {
                 {/* Logo */}
                 <LogoSection href="/home">
                     <LogoImage src={logo} alt="Logo" />
-                    <BrandName>VideoAnalyzer</BrandName>
+                    <BrandName>KATHA</BrandName>
                 </LogoSection>
 
                 {/* Desktop User Section */}

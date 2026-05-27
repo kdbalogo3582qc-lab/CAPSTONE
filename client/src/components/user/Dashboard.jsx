@@ -216,7 +216,7 @@ function Dashboard() {
             </PageWrapper>
             <footer className='bg-white text-gray-500'>
                 <div className='text-sm' style={{ textAlign: 'center', padding: '6px' }}>
-                    &copy; {new Date().getFullYear()} VideoAnalyzer. All rights reserved.
+                    &copy; {new Date().getFullYear()} KATHA. All rights reserved.
                 </div>
             </footer>
         </div>
