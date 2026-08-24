@@ -76,11 +76,110 @@ else:
 
 MODEL_ID = "gemini-3.1-flash-lite"
 
+COMMUNITY_STANDARDS_CATEGORIES = (
+    "nudity_or_sexual_content",
+    "illegal_drugs_or_drug_use",
+    "smoking_vaping_or_tobacco",
+    "violence_gore_or_disturbing_content",
+    "hate_harassment_or_discrimination",
+    "illegal_activities_or_dangerous_behavior",
+    "sexual_content_involving_minors",
+    "other_general_audience_unsuitability",
+)
+COMMUNITY_STANDARDS_CLEAR_STATUSES = {"clear", "allowed_educational_context"}
 
-def transcribe_and_translate_audio(video_path):
+
+def _normalize_community_standards(value):
+    """Validate the model's moderation result and fail closed on any ambiguity."""
+    rejected = {
+        "decision": "rejected",
+        "safe_for_general_audiences": False,
+        "reason": "The Community Standards evaluation was missing, incomplete, or invalid.",
+        "categories": {},
+        "violations": ["other_general_audience_unsuitability"],
+    }
+    if not isinstance(value, dict):
+        return rejected
+
+    categories = value.get("categories")
+    violations = value.get("violations")
+    is_explicitly_safe = (
+        value.get("decision") == "approved"
+        and value.get("safe_for_general_audiences") is True
+        and isinstance(categories, dict)
+        and isinstance(violations, list)
+        and not violations
+        and all(categories.get(category) in COMMUNITY_STANDARDS_CLEAR_STATUSES
+                for category in COMMUNITY_STANDARDS_CATEGORIES)
+    )
+    if not is_explicitly_safe:
+        rejected["reason"] = str(value.get("reason") or rejected["reason"])
+        rejected["categories"] = categories if isinstance(categories, dict) else {}
+        rejected["violations"] = violations if isinstance(violations, list) and violations else [
+            "other_general_audience_unsuitability"
+        ]
+        return rejected
+
+    return {
+        "decision": "approved",
+        "safe_for_general_audiences": True,
+        "reason": str(value.get("reason") or "The advertisement passed the Community Standards Protocol."),
+        "categories": {category: categories[category] for category in COMMUNITY_STANDARDS_CATEGORIES},
+        "violations": [],
+    }
+
+
+def _build_comments_block(comments):
+    """
+    Turn a raw comments payload (JSON string or list of strings/objects) into a
+    numbered evidence block for the Gemini prompt. Returns "" if there is
+    nothing usable — the prompt then falls back to content-only prediction.
+    """
+    if not comments:
+        return ""
+
+    try:
+        parsed = comments if isinstance(comments, list) else json.loads(comments)
+    except (TypeError, ValueError):
+        parsed = [str(comments)]
+
+    if not isinstance(parsed, list):
+        parsed = [parsed]
+
+    lines = []
+    for item in parsed[:300]:
+        if isinstance(item, dict):
+            text = str(item.get("text") or item.get("comment") or item.get("body") or "").strip()
+        else:
+            text = str(item).strip()
+        if text:
+            lines.append(text)
+
+    if not lines:
+        return ""
+
+    numbered = "\n".join(f"{i + 1}. {c}" for i, c in enumerate(lines))
+    return f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VIEWER COMMENTS / FEEDBACK (real audience data — additional evidence source)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{numbered}
+
+Use these comments as a second evidence source, alongside the video content itself, for the
+predicted_target_audience section below. Look for patterns: who is engaging, recurring
+interests/concerns, and demographic clues — but ONLY when the text gives reasonable evidence
+(explicit self-description, clearly context-specific language, etc.). Do NOT infer a commenter's
+age, gender, income, or any other demographic from their username, writing style, or stereotypes
+alone. If the comments don't support a demographic claim, don't make it.
+"""
+
+
+def transcribe_and_translate_audio(video_path, comments=None):
     """
     Upload the MP4 once and get ALL analysis in a single Gemini call:
-    transcript, translation, audio features, emotion, clarity, and summary.
+    transcript, translation, audio features, emotion, clarity, and summary
+    (including the predicted target audience, informed by comments/feedback
+    when available).
     """
     uploaded_file = None
     working_video_path = video_path
@@ -100,6 +199,8 @@ def transcribe_and_translate_audio(video_path):
             video_bytes = base64.b64encode(vf.read()).decode("utf-8")
 
         logging.info("Video encoded. Running analysis...")
+
+        comments_block = _build_comments_block(comments)
 
         prompt = """You are an expert multimodal analyst for Filipino and Southeast Asian video advertisements.
 
@@ -166,6 +267,65 @@ Each "content" string field must be AT LEAST 3 full sentences.
 Each "reason" string under listener_emotions must be AT LEAST 2 sentences.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 6 — COMMUNITY STANDARDS PROTOCOL (MANDATORY APPROVAL GATE)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Decide whether this advertisement is suitable for BOTH children and adults and safe for a general
+audience. Inspect the complete video: visuals, on-screen text, spoken/sung words, sound effects,
+and the overall message and call to action. Do not rely on a single keyword.
+
+REJECT when the advertisement promotes, encourages, glorifies, normalizes, or instructs viewers
+to engage in any of the following:
+- nudity or sexually explicit content;
+- illegal drugs or drug use;
+- smoking, vaping, or tobacco use;
+- excessive violence, gore, or disturbing content;
+- hate speech, harassment, or discrimination;
+- illegal activities or dangerous behavior; or
+- sexual or sexually suggestive content involving minors.
+
+Also REJECT content that is otherwise unsuitable for children or general audiences. In particular,
+reject when the evidence is unclear or the video cannot be assessed confidently; this gate is
+strict and must fail closed.
+
+CONTEXT EXCEPTION: Allow educational, awareness, prevention, health, or public-service messages
+that mention sensitive topics solely to discourage, warn about, prevent, or help people avoid the
+harmful behavior (for example, “Avoid using drugs,” “Stop smoking,” or “Say no to drugs”). This
+exception does NOT allow graphic imagery, sexual content, instructions for harmful conduct, or a
+message that ultimately promotes/glorifies the behavior. Evaluate the advertisement's overall
+intent and context, not keywords alone.
+
+Set decision to "approved" ONLY if every standard is satisfied and the video is clearly safe for
+general audiences. Otherwise set it to "rejected". Every category must use exactly one status:
+"clear", "allowed_educational_context", or "violation". Include only categories with a
+"violation" in violations.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 7 — PREDICTED TARGET AUDIENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+This is a PREDICTION, not a measured or confirmed fact. Never phrase it as something the
+audience has already experienced — phrase it as who the content is most likely aimed at / would
+resonate with, based on the evidence available to you.
+
+Identify WHO is most likely the target audience of this specific video — not a generic bucket
+like "children", "adults", "students", or "general public". Use whatever combination of the
+following dimensions the evidence actually supports: age range, gender (only with sufficient
+evidence), occupation/profession, education level, geographic/location characteristics,
+income/economic segment (only if reasonably supported), interests, lifestyle, and other relevant
+behavioral characteristics. If a dimension isn't supported by evidence, set its value to
+"Unknown" or "Not enough evidence" — never invent it.
+{comments_block}
+Produce a ranked list: one primary_segment (the strongest, best-evidenced match) and zero or more
+secondary_segments (plausible but weaker matches), each with:
+- label: a short descriptive name for the segment (not a generic bucket)
+- demographics: an object with only the dimensions you have evidence for
+- evidence: a specific, evidence-based explanation referencing actual content from the video
+  and, if used, actual patterns from the comments — not a generic statement like "this suits
+  young people". Explicitly note whether each point is drawn from the video content, the
+  comments, or is an AI inference, and never present an inference as a confirmed fact.
+- confidence: "High", "Medium", or "Low", reflecting how strong the evidence actually is — do
+  not default to "High" for weakly-supported guesses.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 RETURN FORMAT — copy this structure exactly, fill all values:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 {
@@ -173,6 +333,22 @@ RETURN FORMAT — copy this structure exactly, fill all values:
   "translated_transcript": "<spoken/sung content only, speakers labeled>",
   "detected_language": "<language>",
   "language_confidence": <float>,
+  "community_standards": {
+    "decision": "approved | rejected",
+    "safe_for_general_audiences": <true | false>,
+    "reason": "<concise context-aware explanation of the overall decision>",
+    "categories": {
+      "nudity_or_sexual_content": "clear | allowed_educational_context | violation",
+      "illegal_drugs_or_drug_use": "clear | allowed_educational_context | violation",
+      "smoking_vaping_or_tobacco": "clear | allowed_educational_context | violation",
+      "violence_gore_or_disturbing_content": "clear | allowed_educational_context | violation",
+      "hate_harassment_or_discrimination": "clear | allowed_educational_context | violation",
+      "illegal_activities_or_dangerous_behavior": "clear | allowed_educational_context | violation",
+      "sexual_content_involving_minors": "clear | allowed_educational_context | violation",
+      "other_general_audience_unsuitability": "clear | allowed_educational_context | violation"
+    },
+    "violations": ["<only the category keys whose status is violation>"]
+  },
   "audio_analysis": {
     "avg_pitch_hz": <float>,
     "pitch_variability": <float>,
@@ -206,7 +382,32 @@ RETURN FORMAT — copy this structure exactly, fill all values:
   "summary": {
     "transcript": {"title": "Transcript", "content": "<full original transcript>"},
     "summary": {"title": "Summary", "content": "<3+ sentences>"},
-    "impact": {"title": "Impact on Audience", "content": "<3+ sentences>"},
+    "predicted_target_audience": {
+      "title": "Predicted Target Audience",
+      "primary_segment": {
+        "label": "<short descriptive name, not a generic bucket>",
+        "demographics": {
+          "age_range": "<e.g. '18-24' or 'Unknown'>",
+          "gender": "<only if evidenced, else 'Unknown'>",
+          "occupation": "<or 'Unknown'>",
+          "education_level": "<or 'Unknown'>",
+          "location": "<or 'Unknown'>",
+          "income_segment": "<only if reasonably supported, else 'Unknown'>",
+          "interests": ["<interest>", "..."],
+          "lifestyle": "<or 'Unknown'>"
+        },
+        "evidence": "<specific, evidence-based reasoning citing content and/or comments; label each point as content, comments, or inference>",
+        "confidence": "High | Medium | Low"
+      },
+      "secondary_segments": [
+        {
+          "label": "<short descriptive name>",
+          "demographics": { "...": "same shape as primary_segment.demographics, only include supported fields" },
+          "evidence": "<evidence-based reasoning>",
+          "confidence": "High | Medium | Low"
+        }
+      ]
+    },
     "advertisement_effectiveness": {"title": "Advertisement Effectiveness", "content": "<3+ sentences>"},
     "audio_appeal": {"title": "Audio Appeal", "content": "<3+ sentences>"},
     "emotional_tone": {"title": "Emotional Tone", "content": "<3+ sentences>"},
@@ -224,6 +425,8 @@ RETURN FORMAT — copy this structure exactly, fill all values:
   }
 }"""
 
+        prompt = prompt.replace("{comments_block}", comments_block)
+
         response = client.models.generate_content(
             model=MODEL_ID,
             contents=[
@@ -232,6 +435,31 @@ RETURN FORMAT — copy this structure exactly, fill all values:
             ]
         )
 
+        if not response.text:
+            reason_str = "unknown"
+            if response.candidates:
+                cand = response.candidates[0]
+                finish_reason = getattr(cand, "finish_reason", "unknown")
+                safety_ratings = getattr(cand, "safety_ratings", None)
+                reason_str = f"finish_reason={finish_reason}"
+                if safety_ratings:
+                    blocked = [
+                        f"{r.category}:{r.probability}"
+                        for r in safety_ratings
+                        if getattr(r, "blocked", False) or str(getattr(r, "probability", "")).upper() not in ("NEGLIGIBLE", "LOW")
+                    ]
+                    if blocked:
+                        reason_str += f", safety_flags=[{', '.join(blocked)}]"
+            else:
+                pf = getattr(response, "prompt_feedback", None)
+                if pf is not None:
+                    reason_str = f"prompt_feedback_block_reason={getattr(pf, 'block_reason', 'unknown')}"
+                else:
+                    reason_str = "no candidates returned, no prompt_feedback available"
+
+            logging.error(f"Returned empty response.text. Reason: {reason_str}")
+            raise RuntimeError(f"Returned no analyzable content for this video ({reason_str})")
+
         json_text = response.text.strip().replace("```json", "").replace("```", "").strip()
         start = json_text.find("{")
         end   = json_text.rfind("}") + 1
@@ -239,6 +467,8 @@ RETURN FORMAT — copy this structure exactly, fill all values:
             raise ValueError("Model returned no valid JSON")
 
         result = json.loads(json_text[start:end])
+
+        community_standards = _normalize_community_standards(result.get("community_standards"))
 
         original   = result.get("original_transcript", "").strip()
         translated = result.get("translated_transcript", "").strip()
@@ -257,6 +487,7 @@ RETURN FORMAT — copy this structure exactly, fill all values:
             "translated_transcript": translated,
             "detected_language":     detected,
             "language_confidence":   result.get("language_confidence", 1.0),
+            "community_standards":   community_standards,
             "audio_analysis":        result.get("audio_analysis", {}),
             "emotion_analysis":      result.get("emotion_analysis", {}),
             "speech_clarity":        result.get("speech_clarity", {}),
@@ -288,6 +519,9 @@ def _gemini_translate(text, detected_language):
             f"TRANSCRIPT:\n{text}"
         )
         response = client.models.generate_content(model=MODEL_ID, contents=prompt)
+        if not response.text:
+            logging.warning("Returned no text during translation fallback; using original text.")
+            return text
         return response.text.strip() or text
     except Exception:
         return text
@@ -332,6 +566,10 @@ def validate_and_process_prompt(user_prompt, analysis_result):
 
     try:
         val_resp   = client.models.generate_content(model=MODEL_ID, contents=validation_prompt)
+        if not val_resp.text:
+            finish_reason = val_resp.candidates[0].finish_reason if val_resp.candidates else "no candidates"
+            logging.error(f"Returned empty text during validation. finish_reason={finish_reason}")
+            raise RuntimeError(f"Returned no text during validation (finish_reason={finish_reason})")
         val_text   = val_resp.text.strip().replace("```json", "").replace("```", "").strip()
         val_start  = val_text.find("{")
         val_end    = val_text.rfind("}") + 1
@@ -375,6 +613,10 @@ def validate_and_process_prompt(user_prompt, analysis_result):
         )
 
         response  = client.models.generate_content(model=MODEL_ID, contents=context_prompt)
+        if not response.text:
+            finish_reason = response.candidates[0].finish_reason if response.candidates else "no candidates"
+            logging.error(f"Returned empty text answering prompt. finish_reason={finish_reason}")
+            raise RuntimeError(f"Returned no text (finish_reason={finish_reason})")
         resp_text = response.text.strip().replace("```json", "").replace("```", "").strip()
 
         try:
@@ -410,15 +652,17 @@ if __name__ == "__main__":
             _output_result({"error": f"Invalid JSON: {str(e)}"})
             sys.exit(1)
 
-    elif len(sys.argv) == 2:
-        video_path = sys.argv[1]
+    elif len(sys.argv) in (2, 3):
+        video_path   = sys.argv[1]
+        comments_arg = sys.argv[2] if len(sys.argv) == 3 else None
         try:
-            result = transcribe_and_translate_audio(video_path)
+            result = transcribe_and_translate_audio(video_path, comments=comments_arg)
             _output_result({
                 "transcript":            result["original_transcript"],
                 "translated_transcript": result["translated_transcript"],
                 "detected_language":     result["detected_language"],
                 "language_confidence":   result["language_confidence"],
+                "community_standards":   result["community_standards"],
                 "audio_analysis":        result.get("audio_analysis", {}),
                 "emotion_analysis":      result.get("emotion_analysis", {}),
                 "speech_clarity":        result.get("speech_clarity", {}),

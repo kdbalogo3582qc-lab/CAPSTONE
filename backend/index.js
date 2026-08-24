@@ -153,6 +153,36 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+// A video is eligible to be saved only after this server process has evaluated
+// the exact uploaded file. This intentionally fails closed after a restart or
+// an incomplete/unknown moderation response.
+const communityStandardsDecisions = new Map();
+const UPLOADS_DIRECTORY = path.resolve(__dirname, "uploads");
+
+function getUploadedVideoPath(videoPath) {
+    if (typeof videoPath !== "string" || !videoPath.trim()) return null;
+
+    const absolutePath = path.resolve(__dirname, videoPath.trim());
+    if (absolutePath !== UPLOADS_DIRECTORY && !absolutePath.startsWith(`${UPLOADS_DIRECTORY}${path.sep}`)) {
+        return null;
+    }
+
+    return {
+        absolutePath,
+        // Use one canonical key regardless of Windows/POSIX path separators.
+        key: path.relative(__dirname, absolutePath).split(path.sep).join("/"),
+    };
+}
+
+function recordCommunityStandardsDecision(videoKey, result) {
+    const moderation = result?.community_standards;
+    communityStandardsDecisions.set(videoKey, {
+        approved: moderation?.decision === "approved" && moderation?.safe_for_general_audiences === true,
+        moderation,
+        evaluatedAt: Date.now(),
+    });
+}
+
 // ─── Utility: parse Python output using sentinel marker ───────────────────────
 // python_script.py writes:  __RESULT__{ ...json... }
 // This is robust against library warnings leaking onto stdout on Windows.
@@ -197,10 +227,20 @@ app.post("/upload-video", upload.single("video"), (req, res) => {
 
 // ─── Process video (non-streaming) ───────────────────────────────────────────
 app.post("/process-video", (req, res) => {
-    const { videoPath } = req.body;
+    const { videoPath, comments } = req.body;
     if (!videoPath) return res.status(400).json({ error: "Video path is required" });
+    const uploadedVideo = getUploadedVideoPath(videoPath);
+    if (!uploadedVideo) return res.status(400).json({ error: "Invalid uploaded video path" });
 
-    const pythonProcess = spawnPython(["./python_script.py", videoPath]);
+    // comments (optional) — array of strings/objects with viewer feedback for this video.
+    // Forwarded as-is to python_script.py, which folds it into the Gemini prompt as
+    // additional evidence for the predicted target audience.
+    const args = ["./python_script.py", uploadedVideo.absolutePath];
+    if (comments && (Array.isArray(comments) ? comments.length : true)) {
+        args.push(JSON.stringify(comments));
+    }
+
+    const pythonProcess = spawnPython(args);
     let pythonOutput    = "";
 
     pythonProcess.stdout.on("data", (data) => { pythonOutput += data.toString(); });
@@ -210,6 +250,7 @@ app.post("/process-video", (req, res) => {
         try {
             const parsed = parsePythonOutput(pythonOutput);
             if (parsed.error) return res.status(500).json({ error: parsed.error });
+            recordCommunityStandardsDecision(uploadedVideo.key, parsed);
             return res.json(parsed);
         } catch (err) {
             console.error("Failed to parse Python output:", err.message);
@@ -222,8 +263,12 @@ app.post("/process-video", (req, res) => {
 // ─── Process video — SSE streaming ───────────────────────────────────────────
 // GET /process-video-stream?videoPath=uploads/xxx.mp4
 app.get("/process-video-stream", (req, res) => {
-    const { videoPath } = req.query;
+    const { videoPath, comments } = req.query;
     if (!videoPath) { res.status(400).end(); return; }
+    const uploadedVideo = getUploadedVideoPath(videoPath);
+    if (!uploadedVideo) { res.status(400).json({ error: "Invalid uploaded video path" }); return; }
+    // comments (optional, GET query param) — a JSON-encoded array of comment strings/objects,
+    // already stringified by the client. Passed straight through to python_script.py.
 
     res.setHeader("Content-Type",      "text/event-stream");
     res.setHeader("Cache-Control",     "no-cache");
@@ -248,7 +293,10 @@ app.get("/process-video-stream", (req, res) => {
         { match: "configured successfully",           label: null },
     ];
 
-    const pythonProcess = spawnPython(["./python_script.py", videoPath]);
+    const streamArgs = ["./python_script.py", uploadedVideo.absolutePath];
+    if (comments) streamArgs.push(comments);
+
+    const pythonProcess = spawnPython(streamArgs);
     let pythonOutput = "";
     let stderrBuf    = "";
 
@@ -286,6 +334,7 @@ app.get("/process-video-stream", (req, res) => {
             if (parsed.error) {
                 send("error", { message: parsed.error });
             } else {
+                recordCommunityStandardsDecision(uploadedVideo.key, parsed);
                 send("result", { success: true, data: parsed });
             }
         } catch (err) {
@@ -570,6 +619,23 @@ app.post("/save-video", verifyToken, (req, res) => {
     const { video_path, summary, analysis, extra_results, file_size } = req.body;
     if (!video_path || !analysis)
         return res.status(400).json({ error: "video_path and analysis are required" });
+
+    const uploadedVideo = getUploadedVideoPath(video_path);
+    if (!uploadedVideo) return res.status(400).json({ error: "Invalid uploaded video path" });
+
+    const moderationDecision = communityStandardsDecisions.get(uploadedVideo.key);
+    if (!moderationDecision?.approved) {
+        const reason = moderationDecision?.moderation?.reason ||
+            "This advertisement has not passed the Community Standards Protocol.";
+        return res.status(422).json({
+            error: `Advertisement rejected: ${reason}`,
+            community_standards: moderationDecision?.moderation || {
+                decision: "rejected",
+                safe_for_general_audiences: false,
+                reason: "No completed, approved Community Standards evaluation exists for this video.",
+            },
+        });
+    }
 
     const MAX_STORAGE = 5 * 1024 * 1024 * 1024;
 
