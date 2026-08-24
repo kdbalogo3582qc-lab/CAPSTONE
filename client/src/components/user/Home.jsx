@@ -7,13 +7,13 @@ import styled, { keyframes } from 'styled-components';
 import { useAuth } from "./Login";
 import { GoTag } from "react-icons/go";
 import { FaShareAlt, FaSmile } from "react-icons/fa";
-import { FiDownload, FiBookmark, FiRotateCcw, FiCheckCircle, FiLoader } from "react-icons/fi";
+import { FiDownload, FiBookmark, FiRotateCcw, FiCheckCircle, FiLoader, FiUploadCloud, FiInfo } from "react-icons/fi";
 import { MdOutlineFormatLineSpacing, MdOutlineAssessment, MdLockOutline } from "react-icons/md";
 import { FaStreetView } from "react-icons/fa6";
 import { BsStars, BsLightbulbFill } from "react-icons/bs";
 import { FaWaveSquare } from "react-icons/fa";
 import Rightbar from "./Rightbar.jsx";
-import { CiSearch } from "react-icons/ci";
+import { CiSearch, CiVideoOn } from "react-icons/ci";
 import { RiEmotionFill, RiEmotionNormalFill } from "react-icons/ri";
 import { PiSmileySadFill } from "react-icons/pi";
 import { HiMenuAlt3 } from "react-icons/hi";
@@ -95,9 +95,29 @@ function Home() {
 
     const [date, setDate] = useState(new Date());
     const [formattedDate, setFormattedDate] = useState("");
+
+    const userFirstName = (() => {
+        const raw = user?.name || user?.fullName || user?.username || user?.email || "";
+        const first = String(raw).split("@")[0].split(" ")[0].trim();
+        return first ? first.charAt(0).toUpperCase() + first.slice(1) : "";
+    })();
+
+    const getGreeting = () => {
+        const hour = date.getHours();
+        if (hour < 12) return "Good morning";
+        if (hour < 18) return "Good afternoon";
+        return "Good evening";
+    };
     const [searchQuery, setSearchQuery] = useState("");
     const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
     const [isRightbarCollapsed, setIsRightbarCollapsed] = useState(false);
+    const [showAnnouncement, setShowAnnouncement] = useState(() => {
+        try { return localStorage.getItem("home_hideAnnouncement") !== "1"; } catch { return true; }
+    });
+    const dismissAnnouncement = () => {
+        setShowAnnouncement(false);
+        try { localStorage.setItem("home_hideAnnouncement", "1"); } catch { }
+    };
     const [isSaving, setIsSaving] = useState(false);
     const [resetKey, setResetKey] = useState(0);
 
@@ -160,13 +180,13 @@ function Home() {
 
 
     const items_nav = [
-        { id: 1, name: "Summary", icon: <MdOutlineFormatLineSpacing /> },
-        { id: 2, name: "Impact on Audience", icon: <FaStreetView /> },
-        { id: 3, name: "Effective Analysis", icon: <BsStars /> },
-        { id: 4, name: "Assessment", icon: <MdOutlineAssessment /> },
-        { id: 5, name: "Audience Emotion", icon: <RiEmotionFill /> },
-        { id: 6, name: "Suggestions", icon: <BsLightbulbFill /> },
-        { id: 7, name: "Analytics", icon: <TbActivityHeartbeat /> },
+        { id: 1, name: "Summary", icon: <MdOutlineFormatLineSpacing />, desc: "Transcript, translation, and a plain-language recap of the video" },
+        { id: 2, name: "Predicted Target Audience", icon: <FaStreetView />, desc: "AI-predicted audience segments, based on the video's content and any viewer feedback provided" },
+        { id: 3, name: "Effective Analysis", icon: <BsStars />, desc: "Advertisement effectiveness and audio appeal, backed by signal metrics" },
+        { id: 4, name: "Assessment", icon: <MdOutlineAssessment />, desc: "Overall strengths, weaknesses, and emotional tone at a glance" },
+        { id: 5, name: "Audience Emotion", icon: <RiEmotionFill />, desc: "Predicted emotional response distribution across listeners" },
+        { id: 6, name: "Suggestions", icon: <BsLightbulbFill />, desc: "Consolidated findings and recommendations across every dimension" },
+        { id: 7, name: "Analytics", icon: <TbActivityHeartbeat />, desc: "Raw acoustic analysis, emotion scoring, and speech clarity breakdown" },
     ];
     const [current_nav, setCurrentNav] = useState(items_nav[0]);
 
@@ -391,6 +411,67 @@ function Home() {
 
             <MainContent $isRightbarCollapsed={isRightbarCollapsed}>
                 <ContentWrapper>
+                    <HeroSection>
+                        <HeroTextCol>
+                            <HeroEyebrow>{getGreeting()}{userFirstName ? `, ${userFirstName}` : ''} <span></span></HeroEyebrow>
+                            <HeroTitleRow>
+                                <HeroIconBadge>
+                                    <MdOutlineAssessment size={19} />
+                                </HeroIconBadge>
+                                <HeroGreeting>Video Analyzer</HeroGreeting>
+                            </HeroTitleRow>
+                            <HeroSubtitle>
+                                Upload a video to generate AI-powered insights on content, delivery, and predicted target audience.
+                            </HeroSubtitle>
+                        </HeroTextCol>
+                        {formattedDate && (
+                            <HeroDateChip>
+                                <GoTag size={11} />
+                                {formattedDate}
+                            </HeroDateChip>
+                        )}
+                    </HeroSection>
+
+                    <FeatureCardsRow>
+                        <FeatureCard>
+                            <FeatureIconWrap $tone="info">
+                                <MdOutlineFormatLineSpacing size={17} />
+                            </FeatureIconWrap>
+                            <FeatureBody>
+                                <FeatureTitle>Transcript &amp; Translation</FeatureTitle>
+                                <FeatureDesc>Every spoken line captured, labeled by speaker, and translated to English.</FeatureDesc>
+                            </FeatureBody>
+                        </FeatureCard>
+                        <FeatureCard>
+                            <FeatureIconWrap $tone="warning">
+                                <RiEmotionFill size={17} />
+                            </FeatureIconWrap>
+                            <FeatureBody>
+                                <FeatureTitle>Emotion &amp; Tone Detection</FeatureTitle>
+                                <FeatureDesc>Scores happiness, energy, and mood so you know how the ad actually feels.</FeatureDesc>
+                            </FeatureBody>
+                        </FeatureCard>
+                        <FeatureCard>
+                            <FeatureIconWrap $tone="success">
+                                <FaWaveSquare size={16} />
+                            </FeatureIconWrap>
+                            <FeatureBody>
+                                <FeatureTitle>Speech Clarity Scoring</FeatureTitle>
+                                <FeatureDesc>Pace, filler words, and audio quality rolled into one clarity score.</FeatureDesc>
+                            </FeatureBody>
+                        </FeatureCard>
+                    </FeatureCardsRow>
+
+                    {showAnnouncement && (
+                        <AnnouncementBanner $tone="info">
+                            <AnnouncementIcon><BsStars size={16} /></AnnouncementIcon>
+                            <AnnouncementText>
+                                <b>Tuned for Filipino &amp; Southeast Asian ads.</b> Transcription, tone, and emotion scoring work best with clear spoken audio in Tagalog, Taglish, or English.
+                            </AnnouncementText>
+                            <AnnouncementClose onClick={dismissAnnouncement} aria-label="Dismiss">×</AnnouncementClose>
+                        </AnnouncementBanner>
+                    )}
+
                     {!viewVideo ? (
                         <VideoUploadSection>
                             <UploadBox>
@@ -401,19 +482,57 @@ function Home() {
                                     type="file"
                                     onChange={handleFileChange}
                                 />
-                                <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" strokeLinejoin="round" strokeLinecap="round" viewBox="0 0 24 24" strokeWidth={2} fill="none" stroke="currentColor" className="upload-icon">
-                                    <polyline points="16 16 12 12 8 16" />
-                                    <line y2={21} x2={12} y1={12} x1={12} />
-                                    <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
-                                    <polyline points="16 16 12 12 8 16" />
-                                </svg>
+                                <UploadIconWrap>
+                                    <FiUploadCloud className="upload-icon" />
+                                </UploadIconWrap>
+                                <UploadTitle>Upload your video</UploadTitle>
+                                <UploadHint>Click or drag a video file here</UploadHint>
+                                <UploadTagRow>
+                                    <UploadTag>MP4 · MOV · WEBM</UploadTag>
+                                    <UploadTag>AI-powered insights</UploadTag>
+                                    <UploadTag>Ready in a couple of minutes</UploadTag>
+                                </UploadTagRow>
                             </UploadBox>
+
+                            <HowItWorksRow>
+                                <HowItWorksStep>
+                                    <HowItWorksNum>1</HowItWorksNum>
+                                    <HowItWorksBody>
+                                        <HowItWorksTitle>Upload</HowItWorksTitle>
+                                        <HowItWorksText>Add your video ad — MP4, MOV, or WEBM.</HowItWorksText>
+                                    </HowItWorksBody>
+                                </HowItWorksStep>
+                                <HowItWorksStep>
+                                    <HowItWorksNum>2</HowItWorksNum>
+                                    <HowItWorksBody>
+                                        <HowItWorksTitle>Analyze</HowItWorksTitle>
+                                        <HowItWorksText>Gemini transcribes speech and scores tone, clarity, and emotion.</HowItWorksText>
+                                    </HowItWorksBody>
+                                </HowItWorksStep>
+                                <HowItWorksStep>
+                                    <HowItWorksNum>3</HowItWorksNum>
+                                    <HowItWorksBody>
+                                        <HowItWorksTitle>Review</HowItWorksTitle>
+                                        <HowItWorksText>Browse insights across seven tabs, then save what matters.</HowItWorksText>
+                                    </HowItWorksBody>
+                                </HowItWorksStep>
+                            </HowItWorksRow>
                         </VideoUploadSection>
                     ) : (
                         <VideoSection>
-                            <VideoPlayer src={previewURL} controls />
+                            <VideoPlayerWrap>
+                                <VideoPlayer src={previewURL} controls />
+                            </VideoPlayerWrap>
                             <VideoInfoCard>
-                                <VideoFileName>Selected Video: {videoFile?.name || uploadedVideoName || "video"}</VideoFileName>
+                                <VideoFileNameRow>
+                                    <VideoFileIcon>
+                                        <CiVideoOn size={18} />
+                                    </VideoFileIcon>
+                                    <VideoFileName title={videoFile?.name || uploadedVideoName || "video"}>
+                                        {videoFile?.name || uploadedVideoName || "video"}
+                                    </VideoFileName>
+                                </VideoFileNameRow>
+
                                 <ButtonGroup>
                                     <SecondaryButton
                                         onClick={() => {
@@ -449,6 +568,7 @@ function Home() {
 
                     {(isStreaming || progressLogs.length > 0) && !analysisResult && (
                         <ProgressPanel>
+                            {isStreaming && <ProgressBarIndeterminate />}
                             <ProgressHeader>
                                 <ProgressTitle>
                                     {isStreaming ? (
@@ -512,6 +632,59 @@ function Home() {
                                 </ActionButtons>
                             </ResultsHeader>
 
+                            {(() => {
+                                const clarityScore = analysisResult?.speech_clarity?.overall_score;
+                                const dominantEmotion = analysisResult?.emotion_analysis?.dominant_emotion;
+                                const inferredTone = analysisResult?.audio_analysis?.inferred_tone;
+                                const speakingRate = analysisResult?.audio_analysis?.estimated_speaking_rate_wpm;
+                                const detectedLanguage = analysisResult?.detected_language;
+
+                                const chips = [
+                                    detectedLanguage && {
+                                        icon: <GoTag size={14} />,
+                                        label: 'Language',
+                                        value: detectedLanguage,
+                                    },
+                                    clarityScore != null && {
+                                        icon: <MdOutlineAssessment size={14} />,
+                                        label: 'Clarity Score',
+                                        value: `${clarityScore}/100`,
+                                        $tone: clarityScore >= 80 ? 'good' : clarityScore >= 60 ? 'mid' : 'low',
+                                    },
+                                    dominantEmotion && {
+                                        icon: <RiEmotionFill size={14} />,
+                                        label: 'Dominant Emotion',
+                                        value: dominantEmotion.charAt(0).toUpperCase() + dominantEmotion.slice(1),
+                                    },
+                                    inferredTone && {
+                                        icon: <FaWaveSquare size={14} />,
+                                        label: 'Inferred Tone',
+                                        value: inferredTone.charAt(0).toUpperCase() + inferredTone.slice(1),
+                                    },
+                                    speakingRate != null && {
+                                        icon: <TbActivityHeartbeat size={14} />,
+                                        label: 'Speaking Rate',
+                                        value: `${speakingRate} WPM`,
+                                    },
+                                ].filter(Boolean);
+
+                                if (chips.length === 0) return null;
+
+                                return (
+                                    <QuickStatsRow>
+                                        {chips.map((chip, i) => (
+                                            <QuickStatChip key={i} $tone={chip.$tone}>
+                                                <QuickStatIcon $tone={chip.$tone}>{chip.icon}</QuickStatIcon>
+                                                <QuickStatText>
+                                                    <QuickStatLabel>{chip.label}</QuickStatLabel>
+                                                    <QuickStatValue>{chip.value}</QuickStatValue>
+                                                </QuickStatText>
+                                            </QuickStatChip>
+                                        ))}
+                                    </QuickStatsRow>
+                                );
+                            })()}
+
                             <TabsContainer>
                                 <TabsScrollWrapper>
                                     {items_nav.map((item) => (
@@ -528,9 +701,66 @@ function Home() {
                             </TabsContainer>
 
                             <ContentCard>
+                                <CardHeaderRow>
+                                    <CardHeaderIcon>{current_nav.icon}</CardHeaderIcon>
+                                    <CardHeaderTextCol>
+                                        <CardHeaderName>{current_nav.name}</CardHeaderName>
+                                        {current_nav.desc && <CardHeaderDesc>{current_nav.desc}</CardHeaderDesc>}
+                                    </CardHeaderTextCol>
+                                    {analysisResult.detected_language && (
+                                        <LanguagePill title={`Language confidence: ${Math.round((analysisResult.language_confidence ?? 1) * 100)}%`}>
+                                            <GoTag size={11} />
+                                            {analysisResult.detected_language}
+                                        </LanguagePill>
+                                    )}
+                                </CardHeaderRow>
+
+                                <div style={{
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: '8px',
+                                    fontSize: '12px',
+                                    color: '#64748b',
+                                    background: '#f8fafc',
+                                    border: '1px solid #e2e8f0',
+                                    borderRadius: '8px',
+                                    padding: '10px 12px',
+                                    margin: '4px 0 20px',
+                                }}>
+                                    <FiInfo size={14} style={{ flexShrink: 0, marginTop: '1px' }} />
+                                    <span>
+                                        These results are AI-generated by analyzing the video's content, audio, and speech —
+                                        based on patterns the AI has learned. They are estimates and predictions, not
+                                        guaranteed or verified facts, and should be reviewed before use.
+                                    </span>
+                                </div>
+
                                 {/* ── Tab 1: Summary ── */}
                                 {current_nav.id === 1 && (
                                     <ContentSection>
+                                        {analysisResult.detected_language && (() => {
+                                            const confidence = analysisResult.language_confidence ?? 1;
+                                            const pct = Math.round(confidence * 100);
+                                            const isLow = confidence < 0.6;
+                                            return (
+                                                <Banner $tone={isLow ? 'warning' : 'info'}>
+                                                    <BannerIconWrap $tone={isLow ? 'warning' : 'info'}>
+                                                        <GoTag size={15} />
+                                                    </BannerIconWrap>
+                                                    <BannerBody>
+                                                        <BannerTitle $tone={isLow ? 'warning' : 'info'}>
+                                                            Detected language: {analysisResult.detected_language} · {pct}% confidence
+                                                        </BannerTitle>
+                                                        <BannerDesc $tone={isLow ? 'warning' : 'info'}>
+                                                            {isLow
+                                                                ? "Confidence is on the lower side — background noise or code-switching may affect transcript accuracy. Double-check the transcript below against the original audio."
+                                                                : "The transcript and translation below were generated automatically from the spoken audio in this video."}
+                                                        </BannerDesc>
+                                                    </BannerBody>
+                                                </Banner>
+                                            );
+                                        })()}
+
                                         <ContentTitle>
                                             {highlightText(getSafeContent(analysisResult, 'summary.summary.title', 'Summary'), searchQuery)}
                                         </ContentTitle>
@@ -559,15 +789,104 @@ function Home() {
                                     </ContentSection>
                                 )}
 
-                                {/* ── Tab 2: Impact on Audience ── */}
+                                {/* ── Tab 2: Predicted Target Audience ── */}
                                 {current_nav.id === 2 && (
                                     <ContentSection>
-                                        <ContentTitle>
-                                            {highlightText(getSafeContent(analysisResult, 'summary.impact.title', 'Impact on Audience'), searchQuery)}
-                                        </ContentTitle>
-                                        <ContentText>
-                                            {highlightText(getSafeContent(analysisResult, 'summary.impact.content', 'No impact analysis available'), searchQuery)}
-                                        </ContentText>
+                                        {(() => {
+                                            const audience = analysisResult?.summary?.predicted_target_audience;
+
+                                            // Backward compatibility: analyses saved before this change only
+                                            // have summary.impact — fall back to it rather than showing nothing.
+                                            if (!audience) {
+                                                return (
+                                                    <>
+                                                        <ContentTitle>
+                                                            {highlightText(getSafeContent(analysisResult, 'summary.impact.title', 'Predicted Target Audience'), searchQuery)}
+                                                        </ContentTitle>
+                                                        <ContentText>
+                                                            {highlightText(getSafeContent(analysisResult, 'summary.impact.content', 'No target audience prediction available'), searchQuery)}
+                                                        </ContentText>
+                                                    </>
+                                                );
+                                            }
+
+                                            const renderSegment = (segment, label, key) => {
+                                                if (!segment) return null;
+                                                const demo = segment.demographics || {};
+                                                const demoEntries = Object.entries(demo).filter(([, v]) => {
+                                                    if (v == null) return false;
+                                                    if (Array.isArray(v)) return v.length > 0;
+                                                    const s = String(v).trim().toLowerCase();
+                                                    return s && s !== 'unknown' && s !== 'not enough evidence';
+                                                });
+                                                const confidenceColors = {
+                                                    High:   { bg: '#dcfce7', fg: '#166534' },
+                                                    Medium: { bg: '#fef9c3', fg: '#854d0e' },
+                                                    Low:    { bg: '#fee2e2', fg: '#991b1b' },
+                                                };
+                                                const cColor = confidenceColors[segment.confidence] || { bg: '#f1f5f9', fg: '#475569' };
+
+                                                return (
+                                                    <div key={key} style={{ marginBottom: '24px', padding: '16px', border: '1px solid #e2e8f0', borderRadius: '10px' }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
+                                                            <span style={{ fontSize: '11px', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#0284c7' }}>
+                                                                {label}
+                                                            </span>
+                                                            {segment.confidence && (
+                                                                <span style={{
+                                                                    fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '999px',
+                                                                    background: cColor.bg, color: cColor.fg,
+                                                                }}>
+                                                                    {segment.confidence} confidence
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <div style={{ fontSize: '16px', fontWeight: 700, marginBottom: '10px' }}>
+                                                            {highlightText(segment.label || 'Unlabeled segment', searchQuery)}
+                                                        </div>
+                                                        {demoEntries.length > 0 && (
+                                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                                                                {demoEntries.map(([dKey, value]) => (
+                                                                    <span key={dKey} style={{ fontSize: '12px', background: '#f1f5f9', borderRadius: '6px', padding: '4px 8px' }}>
+                                                                        <strong style={{ textTransform: 'capitalize' }}>{dKey.replace(/_/g, ' ')}:</strong>{' '}
+                                                                        {Array.isArray(value) ? value.join(', ') : String(value)}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        {segment.evidence && (
+                                                            <ContentText style={{ fontSize: '13px' }}>
+                                                                {highlightText(segment.evidence, searchQuery)}
+                                                            </ContentText>
+                                                        )}
+                                                    </div>
+                                                );
+                                            };
+
+                                            const secondary = Array.isArray(audience.secondary_segments) ? audience.secondary_segments : [];
+
+                                            return (
+                                                <>
+                                                    <ContentTitle>
+                                                        {highlightText(audience.title || 'Predicted Target Audience', searchQuery)}
+                                                    </ContentTitle>
+                                                    <div style={{ fontSize: '12px', color: '#64748b', marginBottom: '16px' }}>
+                                                        Predicted, not confirmed — ranked by how strongly the video content supports each segment.
+                                                    </div>
+                                                    {renderSegment(audience.primary_segment, 'Primary Target Audience', 'primary')}
+                                                    {secondary.map((seg, i) =>
+                                                        renderSegment(
+                                                            seg,
+                                                            secondary.length > 1 ? `Secondary Target Audience ${i + 1}` : 'Secondary Target Audience',
+                                                            `secondary-${i}`
+                                                        )
+                                                    )}
+                                                    {!audience.primary_segment && secondary.length === 0 && (
+                                                        <ContentText>No target audience prediction available</ContentText>
+                                                    )}
+                                                </>
+                                            );
+                                        })()}
                                     </ContentSection>
                                 )}
 
@@ -790,13 +1109,24 @@ function Home() {
                                                 <tbody>
                                                     {[
                                                         { num: '01', category: 'Message Clarity', tag: 'Summary', content: getSafeContent(analysisResult, 'summary.summary.content', 'No summary available') },
-                                                        { num: '02', category: 'Audience Impact', tag: 'Impact', content: getSafeContent(analysisResult, 'summary.impact.content', 'No impact analysis available') },
+                                                        {
+                                                            num: '02',
+                                                            category: 'Predicted Target Audience',
+                                                            tag: 'Audience',
+                                                            content: (() => {
+                                                                const primary = analysisResult?.summary?.predicted_target_audience?.primary_segment;
+                                                                if (primary?.label) {
+                                                                    return `${primary.label}${primary.evidence ? ` — ${primary.evidence}` : ''}`;
+                                                                }
+                                                                return getSafeContent(analysisResult, 'summary.impact.content', 'No target audience prediction available');
+                                                            })(),
+                                                        },
                                                         { num: '03', category: 'Effectiveness Improvements', tag: 'Effectiveness', content: getSafeContent(analysisResult, 'summary.advertisement_effectiveness.content', 'No effectiveness analysis available') },
                                                         { num: '04', category: 'Emotional Tone', tag: 'Tone', content: getSafeContent(analysisResult, 'summary.emotional_tone.content', 'No emotional analysis available') },
                                                         { num: '05', category: 'Strengths & Weaknesses', tag: 'Assessment', content: getSafeContent(analysisResult, 'summary.overall_assessment.content', 'No assessment available') },
                                                     ].map(({ num, category, tag, content }) => (
                                                         <SuggestionTr key={num}>
-                                                            <SuggestionNumTd>{num}</SuggestionNumTd>
+                                                            <SuggestionNumTd><SuggestionNumBadge>{num}</SuggestionNumBadge></SuggestionNumTd>
                                                             <SuggestionCategoryTd>
                                                                 <SuggestionCategoryName>{category}</SuggestionCategoryName>
                                                                 <SuggestionTag>{tag}</SuggestionTag>
@@ -957,6 +1287,15 @@ function Home() {
                                                                     <AnalyticsFootnote>
                                                                         Dominant emotion classified as <strong style={{ color: '#1d2939', textTransform: 'capitalize' }}>{dominant || 'N/A'}</strong> based on MFCC, pitch, energy, and spectral contrast features.
                                                                     </AnalyticsFootnote>
+                                                                    {(ea.reasoning || ea.emotion_reasoning) && (
+                                                                        <QuoteCallout>
+                                                                            <QuoteCalloutIcon><BsLightbulbFill size={14} /></QuoteCalloutIcon>
+                                                                            <QuoteCalloutBody>
+                                                                                <QuoteCalloutLabel>AI Reasoning</QuoteCalloutLabel>
+                                                                                <QuoteCalloutText>{highlightText(ea.reasoning || ea.emotion_reasoning, searchQuery)}</QuoteCalloutText>
+                                                                            </QuoteCalloutBody>
+                                                                        </QuoteCallout>
+                                                                    )}
                                                                 </>
                                                             );
                                                         })() : (
@@ -1050,6 +1389,15 @@ function Home() {
                                                                     <AnalyticsFootnote>
                                                                         Score computed from speech pace, filler word frequency, pitch/energy variance, and spectral signal quality.
                                                                     </AnalyticsFootnote>
+                                                                    {(sc.reasoning || sc.clarity_reasoning) && (
+                                                                        <QuoteCallout>
+                                                                            <QuoteCalloutIcon><BsLightbulbFill size={14} /></QuoteCalloutIcon>
+                                                                            <QuoteCalloutBody>
+                                                                                <QuoteCalloutLabel>AI Reasoning</QuoteCalloutLabel>
+                                                                                <QuoteCalloutText>{highlightText(sc.reasoning || sc.clarity_reasoning, searchQuery)}</QuoteCalloutText>
+                                                                            </QuoteCalloutBody>
+                                                                        </QuoteCallout>
+                                                                    )}
                                                                 </>
                                                             );
                                                         })() : (
@@ -1121,6 +1469,147 @@ const PageWrapper = styled.div`
     flex-direction: column;
 `;
 
+const bannerTones = {
+    info:    { fg: '#075985', bg: '#f0f9ff', border: '#bae6fd', iconBg: '#e0f2fe' },
+    success: { fg: '#166534', bg: '#f0fdf4', border: '#bbf7d0', iconBg: '#dcfce7' },
+    warning: { fg: '#92400e', bg: '#fffbeb', border: '#fde68a', iconBg: '#fef3c7' },
+    neutral: { fg: '#334155', bg: '#f8fafc', border: '#e2e8f0', iconBg: '#f1f5f9' },
+};
+
+const AnnouncementBanner = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: ${p => (bannerTones[p.$tone] || bannerTones.info).bg};
+    border: 1px solid ${p => (bannerTones[p.$tone] || bannerTones.info).border};
+    border-radius: 12px;
+    color: ${p => (bannerTones[p.$tone] || bannerTones.info).fg};
+    font-size: 0.8125rem;
+    font-weight: 500;
+    margin-bottom: 20px;
+`;
+
+const AnnouncementIcon = styled.span`
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+`;
+
+const AnnouncementText = styled.span`
+    flex: 1;
+    min-width: 0;
+    b { font-weight: 700; }
+`;
+
+const AnnouncementClose = styled.button`
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    color: inherit;
+    opacity: 0.6;
+    cursor: pointer;
+    font-size: 1rem;
+    line-height: 1;
+    transition: opacity 0.15s, background 0.15s;
+
+    &:hover { opacity: 1; background: rgba(0,0,0,0.06); }
+`;
+
+const Banner = styled.div`
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    background: ${p => (bannerTones[p.$tone] || bannerTones.info).bg};
+    border: 1px solid ${p => (bannerTones[p.$tone] || bannerTones.info).border};
+    border-radius: 12px;
+    margin-bottom: 20px;
+`;
+
+const BannerIconWrap = styled.div`
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    flex-shrink: 0;
+    color: ${p => (bannerTones[p.$tone] || bannerTones.info).fg};
+    background: ${p => (bannerTones[p.$tone] || bannerTones.info).iconBg};
+`;
+
+const BannerBody = styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+`;
+
+const BannerTitle = styled.p`
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: ${p => (bannerTones[p.$tone] || bannerTones.info).fg};
+    margin: 0;
+`;
+
+const BannerDesc = styled.p`
+    font-size: 0.8125rem;
+    font-weight: 400;
+    line-height: 1.55;
+    color: ${p => (bannerTones[p.$tone] || bannerTones.info).fg};
+    opacity: 0.85;
+    margin: 0;
+`;
+
+const QuoteCallout = styled.div`
+    display: flex;
+    gap: 12px;
+    margin-top: 14px;
+    padding: 14px 16px;
+    background: #f8fafc;
+    border-left: 3px solid #7dd3fc;
+    border-radius: 0 10px 10px 0;
+`;
+
+const QuoteCalloutIcon = styled.span`
+    display: flex;
+    align-items: flex-start;
+    padding-top: 2px;
+    color: #0284c7;
+    flex-shrink: 0;
+`;
+
+const QuoteCalloutBody = styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+`;
+
+const QuoteCalloutLabel = styled.span`
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #0284c7;
+    opacity: 0.75;
+`;
+
+const QuoteCalloutText = styled.p`
+    font-size: 0.875rem;
+    font-style: italic;
+    line-height: 1.65;
+    color: #475569;
+    margin: 0;
+`;
+
 const MainContent = styled.main`
     flex: 1;
     margin-top: 80px;
@@ -1161,8 +1650,153 @@ const ContentWrapper = styled.div`
     margin: 0 auto;
 `;
 
+const HeroSection = styled.div`
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 22px 24px;
+    margin-bottom: 16px;
+    background: #026ba1;
+    border-radius: 16px;
+    overflow: hidden;
+    position: relative;
+
+    @media (max-width: 640px) { padding: 18px 20px; }
+`;
+
+const HeroTextCol = styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    position: relative;
+    z-index: 1;
+`;
+
+const HeroEyebrow = styled.span`
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #bae6fd;
+
+    span { margin-left: 2px; }
+`;
+
+const HeroGreeting = styled.h1`
+    font-size: 1.375rem;
+    font-weight: 650;
+    color: white;
+    margin: 0;
+    letter-spacing: -0.01em;
+
+    @media (max-width: 640px) { font-size: 1.1875rem; }
+`;
+
+const HeroSubtitle = styled.p`
+    font-size: 0.875rem;
+    font-weight: 400;
+    color: #bae6fd;
+    margin: 2px 0 0 0;
+    max-width: 520px;
+    line-height: 1.55;
+`;
+
+const FeatureCardsRow = styled.div`
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+`;
+
+const featureTones = {
+    info:    { fg: '#0284c7', bg: '#eff6ff' },
+    warning: { fg: '#b45309', bg: '#fffbeb' },
+    success: { fg: '#166534', bg: '#f0fdf4' },
+};
+
+const FeatureCard = styled.div`
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    transition: border-color 0.15s, transform 0.15s;
+
+    &:hover { border-color: #cbd5e1; transform: translateY(-1px); }
+`;
+
+const FeatureIconWrap = styled.div`
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 9px;
+    flex-shrink: 0;
+    color: ${p => (featureTones[p.$tone] || featureTones.info).fg};
+    background: ${p => (featureTones[p.$tone] || featureTones.info).bg};
+`;
+
+const FeatureBody = styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+`;
+
+const FeatureTitle = styled.span`
+    font-size: 0.875rem;
+    font-weight: 650;
+    color: #1e293b;
+`;
+
+const FeatureDesc = styled.span`
+    font-size: 0.8125rem;
+    color: #64748b;
+    line-height: 1.5;
+`;
+
+const HeroTitleRow = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 2px 0;
+`;
+
+const HeroIconBadge = styled.div`
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.14);
+    color: white;
+    flex-shrink: 0;
+`;
+
+const HeroDateChip = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    font-size: 0.8125rem;
+    font-weight: 550;
+    color: #e0f2fe;
+    padding: 8px 14px;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 8px;
+    white-space: nowrap;
+    position: relative;
+    z-index: 1;
+
+    @media (max-width: 560px) { display: none; }
+`;
+
 const VideoUploadSection = styled.section`
-    margin-bottom: 32px;
+    margin-bottom: 28px;
 `;
 
 const UploadBox = styled.label`
@@ -1171,120 +1805,294 @@ const UploadBox = styled.label`
     align-items: center;
     justify-content: center;
     width: 100%;
-    min-height: 400px;
-    background: white;
-    border: 2px dashed #d1d5db;
+    min-height: 340px;
+    background: #f8fafc;
+    border: 1.5px dashed #cbd5e1;
     border-radius: 16px;
     cursor: pointer;
-    transition: all 0.3s ease;
+    transition: all 0.25s ease;
     position: relative;
     overflow: hidden;
 
-    &:hover { border-color: #0284c7; background: #f0f9ff; }
-
-    .upload-input { position: absolute; width: 0; height: 0; opacity: 0; }
-    .upload-icon  { width: 64px; height: 64px; color: #0284c7; margin-bottom: 16px; }
-
-    &::after {
-        content: 'Click or drag video file here';
-        font-size: 1rem;
-        color: #6b7280;
-        margin-top: 16px;
+    &:hover {
+        border-color: #0284c7;
+        background: #f0f9ff;
     }
 
+    .upload-input { position: absolute; width: 0; height: 0; opacity: 0; }
+
     @media (max-width: 640px) {
-        min-height: 300px;
-        .upload-icon { width: 48px; height: 48px; }
+        min-height: 260px;
     }
 `;
 
+const UploadIconWrap = styled.div`
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: #e0f2fe;
+    color: #0284c7;
+    margin-bottom: 20px;
+
+    .upload-icon { width: 28px; height: 28px; }
+
+    @media (max-width: 640px) {
+        width: 52px;
+        height: 52px;
+        margin-bottom: 16px;
+        .upload-icon { width: 24px; height: 24px; }
+    }
+`;
+
+const UploadTitle = styled.p`
+    font-size: 1.0625rem;
+    font-weight: 650;
+    color: #1e293b;
+    margin: 0 0 6px 0;
+    letter-spacing: -0.005em;
+`;
+
+const UploadHint = styled.p`
+    font-size: 0.875rem;
+    font-weight: 400;
+    color: #94a3b8;
+    margin: 0 0 20px 0;
+`;
+
+const UploadTagRow = styled.div`
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    padding: 0 20px;
+`;
+
+const UploadTag = styled.span`
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #475569;
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    padding: 5px 12px;
+`;
+
+const HowItWorksRow = styled.div`
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+`;
+
+const HowItWorksStep = styled.div`
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 16px;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+`;
+
+const HowItWorksNum = styled.span`
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #0284c7;
+    color: white;
+    font-size: 0.75rem;
+    font-weight: 700;
+    flex-shrink: 0;
+`;
+
+const HowItWorksBody = styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+`;
+
+const HowItWorksTitle = styled.span`
+    font-size: 0.875rem;
+    font-weight: 650;
+    color: #1e293b;
+`;
+
+const HowItWorksText = styled.span`
+    font-size: 0.8125rem;
+    color: #64748b;
+    line-height: 1.5;
+`;
+
 const VideoSection = styled.section`
-    margin-bottom: 32px;
+    margin-bottom: 28px;
+`;
+
+const VideoPlayerWrap = styled.div`
+    border-radius: 16px 16px 0 0;
+    overflow: hidden;
+    background: #000;
+    line-height: 0;
 `;
 
 const VideoPlayer = styled.video`
     width: 100%;
     max-height: 500px;
-    border-radius: 16px;
+    display: block;
     background: #000;
     object-fit: contain;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
 `;
 
 const VideoInfoCard = styled.div`
-    margin-top: 16px;
-    padding: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px 20px;
     background: white;
-    border-radius: 12px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    border: 1px solid #e5e7eb;
+    border-top: none;
+    border-radius: 0 0 16px 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+
+    @media (max-width: 640px) {
+        flex-direction: column;
+        align-items: stretch;
+    }
+`;
+
+const VideoFileNameRow = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+`;
+
+const VideoFileIcon = styled.span`
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    background: #eff6ff;
+    color: #0284c7;
+    flex-shrink: 0;
 `;
 
 const VideoFileName = styled.p`
     font-size: 0.9375rem;
-    color: #374151;
-    margin: 0 0 16px 0;
+    color: #1e293b;
+    margin: 0;
     font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
 `;
 
 const ButtonGroup = styled.div`
     display: flex;
-    gap: 12px;
+    gap: 10px;
+    flex-shrink: 0;
     @media (max-width: 640px) { flex-direction: column; }
 `;
 
 const PrimaryButton = styled.button`
-    flex: 1;
-    padding: 12px 24px;
-    background: linear-gradient(135deg, #075985 0%, #0284c7 100%);
+    padding: 10px 22px;
+    background: #0284c7;
     color: white;
     border: none;
     border-radius: 10px;
-    font-size: 0.9375rem;
-    font-weight: 500;
+    font-size: 0.875rem;
+    font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
-    box-shadow: 0 2px 8px rgba(2,132,199,0.3);
+    box-shadow: 0 1px 4px rgba(2,132,199,0.25);
+    white-space: nowrap;
 
-    &:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(2,132,199,0.4); }
-    &:disabled { opacity: 0.6; cursor: not-allowed; }
+    &:hover:not(:disabled) { background: #075985; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(2,132,199,0.3); }
+    &:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
+
+    @media (max-width: 640px) { width: 100%; padding: 12px 22px; }
 `;
 
 const SecondaryButton = styled.button`
-    flex: 1;
-    padding: 12px 24px;
+    padding: 10px 20px;
     background: white;
-    color: #374151;
+    color: #475569;
     border: 1px solid #d1d5db;
     border-radius: 10px;
-    font-size: 0.9375rem;
+    font-size: 0.875rem;
     font-weight: 500;
     cursor: pointer;
     transition: all 0.2s;
+    white-space: nowrap;
 
-    &:hover { background: #f9fafb; border-color: #9ca3af; }
+    &:hover:not(:disabled) { background: #f8fafc; border-color: #94a3b8; }
+    &:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    @media (max-width: 640px) { width: 100%; padding: 12px 20px; }
 `;
 
 const ErrorMessage = styled.div`
-    color: #ef4444;
-    margin: 16px 0;
+    color: #b91c1c;
+    margin: 20px 0 0 0;
     font-size: 0.875rem;
-    padding: 16px;
+    padding: 14px 16px;
     background: #fef2f2;
     border-radius: 12px;
     border: 1px solid #fecaca;
     display: flex;
     align-items: center;
     gap: 8px;
-    strong { font-weight: 600; }
+    line-height: 1.5;
+    strong { font-weight: 650; }
 `;
 
 const ProgressPanel = styled.div`
-    margin: 20px 0;
+    position: relative;
+    margin: 20px 0 0 0;
     background: white;
     border: 1px solid #e5e7eb;
-    border-radius: 16px;
+    border-radius: 14px;
     overflow: hidden;
-    box-shadow: 0 1px 6px rgba(0,0,0,0.04);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+`;
+
+const indeterminateSlide = keyframes`
+    0%   { left: -30%; }
+    100% { left: 100%; }
+`;
+
+const ProgressBarIndeterminate = styled.div`
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: #eef2f7;
+    overflow: hidden;
+
+    &::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -30%;
+        width: 30%;
+        height: 100%;
+        background: #0284c7;
+        opacity: 0.85;
+        border-radius: 2px;
+        animation: ${indeterminateSlide} 1.3s ease-in-out infinite;
+    }
 `;
 
 const ProgressHeader = styled.div`
@@ -1357,78 +2165,89 @@ const StepText = styled.span`
 `;
 
 const ResultsSection = styled.section`
-    margin-top: 32px;
+    margin-top: 8px;
 `;
 
 const ResultsHeader = styled.div`
     display: flex;
     align-items: center;
-    gap: 16px;
-    margin-bottom: 24px;
+    gap: 12px;
+    margin-bottom: 20px;
     flex-wrap: wrap;
-    @media (max-width: 640px) { flex-direction: column; }
+    @media (max-width: 640px) { flex-direction: column; align-items: stretch; }
 `;
 
 const SearchBar = styled.div`
     flex: 1;
-    min-width: 0;
+    min-width: 220px;
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 12px 16px;
+    gap: 10px;
+    padding: 10px 14px;
     background: white;
     border: 1px solid #e5e7eb;
     border-radius: 10px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+    transition: border-color 0.15s;
 
-    .search-icon { font-size: 1.25rem; color: #9ca3af; flex-shrink: 0; }
+    &:focus-within { border-color: #0284c7; }
+
+    .search-icon { font-size: 1.125rem; color: #94a3b8; flex-shrink: 0; }
 
     input {
         flex: 1;
         border: none;
         outline: none;
         font-size: 0.875rem;
-        color: #1f2937;
+        color: #1e293b;
         background: transparent;
-        &::placeholder { color: #9ca3af; }
+        &::placeholder { color: #94a3b8; }
     }
 `;
 
 const ActionButtons = styled.div`
     display: flex;
-    gap: 8px;
-    @media (max-width: 640px) { width: 100%; justify-content: flex-end; }
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    box-shadow: 0 1px 2px rgba(15,23,42,0.03);
+    @media (max-width: 640px) { width: 100%; justify-content: space-between; }
 `;
 
 const ActionButton = styled.button`
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: white;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    color: #6b7280;
+    background: transparent;
+    border: none;
+    border-radius: 8px;
+    color: #64748b;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.15s;
+    flex-shrink: 0;
 
-    &:hover { background: #f9fafb; border-color: #0284c7; color: #0284c7; }
+    &:hover { background: #f1f5f9; color: #0284c7; }
 `;
 
 const SaveButton = styled.button`
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 8px 16px;
+    padding: 8px 14px;
     background: #0284c7;
     color: white;
     border: none;
     border-radius: 8px;
-    font-size: 0.875rem;
-    font-weight: 500;
+    font-size: 0.8125rem;
+    font-weight: 600;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
 
     &:hover:not(:disabled) { background: #0369a1; }
     &:disabled { opacity: 0.6; cursor: not-allowed; }
@@ -1438,25 +2257,27 @@ const ResetButton = styled.button`
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 8px 14px;
-    background: white;
-    color: #6b7280;
-    border: 1px solid #e5e7eb;
+    padding: 8px 12px;
+    background: transparent;
+    color: #64748b;
+    border: none;
     border-radius: 8px;
-    font-size: 0.875rem;
+    font-size: 0.8125rem;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
 
-    &:hover { background: #fef2f2; color: #ef4444; border-color: #fecaca; }
+    &:hover { background: #fef2f2; color: #dc2626; }
 `;
 
 const TabsContainer = styled.div`
-    margin-bottom: 24px;
+    margin-bottom: 20px;
     background: white;
+    border: 1px solid #e5e7eb;
     border-radius: 12px;
-    padding: 8px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    padding: 6px;
     overflow-x: auto;
 
     &::-webkit-scrollbar { height: 4px; }
@@ -1466,75 +2287,221 @@ const TabsContainer = styled.div`
 
 const TabsScrollWrapper = styled.div`
     display: flex;
-    gap: 8px;
+    gap: 4px;
     min-width: max-content;
-    @media (max-width: 768px) { gap: 6px; }
 `;
 
 const Tab = styled.button`
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
-    background: ${props => props.$isActive ? 'linear-gradient(135deg, #075985 0%, #0284c7 100%)' : 'transparent'};
-    color: ${props => props.$isActive ? 'white' : '#6b7280'};
+    gap: 7px;
+    padding: 9px 15px;
+    background: ${props => props.$isActive ? '#0284c7' : 'transparent'};
+    color: ${props => props.$isActive ? 'white' : '#64748b'};
     border: none;
     border-radius: 8px;
-    font-size: 0.875rem;
-    font-weight: 500;
+    font-size: 0.8125rem;
+    font-weight: 550;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: all 0.15s;
     white-space: nowrap;
 
-    &:hover { background: ${props => props.$isActive ? 'linear-gradient(135deg, #075985 0%, #0284c7 100%)' : '#f3f4f6'}; }
-    @media (max-width: 768px) { padding: 8px 12px; font-size: 0.8125rem; }
+    &:hover { background: ${props => props.$isActive ? '#075985' : '#f1f5f9'}; color: ${props => props.$isActive ? 'white' : '#1e293b'}; }
+    @media (max-width: 768px) { padding: 8px 12px; }
 `;
 
 const TabIcon = styled.span`
     display: flex;
     align-items: center;
-    font-size: 1.125rem;
+    font-size: 1.0625rem;
     @media (max-width: 768px) { font-size: 1rem; }
 `;
 
 const TabText = styled.span`
-    @media (max-width: 640px) { display: none; }
+    @media (max-width: 560px) { display: none; }
+`;
+
+const QuickStatsRow = styled.div`
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+    margin-bottom: 20px;
+`;
+
+const toneColors = {
+    good: { fg: '#166534', bg: '#f0fdf4', border: '#dcfce7' },
+    mid:  { fg: '#92400e', bg: '#fffbeb', border: '#fde68a' },
+    low:  { fg: '#991b1b', bg: '#fef2f2', border: '#fecaca' },
+    default: { fg: '#0284c7', bg: '#f0f9ff', border: '#e0f2fe' },
+};
+
+const QuickStatChip = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    transition: border-color 0.15s;
+
+    &:hover { border-color: #cbd5e1; }
+`;
+
+const QuickStatIcon = styled.span`
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    flex-shrink: 0;
+    color: ${p => (toneColors[p.$tone] || toneColors.default).fg};
+    background: ${p => (toneColors[p.$tone] || toneColors.default).bg};
+`;
+
+const QuickStatText = styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+`;
+
+const QuickStatLabel = styled.span`
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #94a3b8;
+`;
+
+const QuickStatValue = styled.span`
+    font-size: 0.875rem;
+    font-weight: 650;
+    color: #0f172a;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 `;
 
 const ContentCard = styled.div`
+    position: relative;
     background: white;
-    border-radius: 12px;
-    padding: 24px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    border: 1px solid #e5e7eb;
+    border-radius: 14px;
+    padding: 20px;
+    overflow: hidden;
+
+    &::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: 3px;
+        background: #0284c7;
+    }
+
     @media (min-width: 768px) { padding: 32px; }
 `;
 
-const ContentSection = styled.div`width: 100%;`;
+const CardHeaderRow = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #f1f5f9;
+`;
+
+const CardHeaderIcon = styled.span`
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 9px;
+    background: #eff6ff;
+    color: #0284c7;
+    font-size: 1.0625rem;
+    flex-shrink: 0;
+`;
+
+const CardHeaderTextCol = styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+    flex: 1;
+`;
+
+const CardHeaderName = styled.span`
+    font-size: 0.875rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: #334155;
+`;
+
+const CardHeaderDesc = styled.span`
+    font-size: 0.8125rem;
+    font-weight: 400;
+    color: #94a3b8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    @media (max-width: 640px) { white-space: normal; }
+`;
+
+const LanguagePill = styled.span`
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+    font-size: 0.75rem;
+    font-weight: 650;
+    color: #0369a1;
+    background: #f0f9ff;
+    border: 1px solid #e0f2fe;
+    border-radius: 999px;
+    padding: 5px 11px;
+    text-transform: capitalize;
+    white-space: nowrap;
+`;
+
+const contentFadeIn = keyframes`
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+`;
+
+const ContentSection = styled.div`
+    width: 100%;
+    animation: ${contentFadeIn} 0.25s ease;
+`;
 
 const ContentTitle = styled.h2`
-    font-size: 1.125rem;
-    font-weight: 600;
-    color: #1f2937;
-    margin: 0 0 16px 0;
-    @media (min-width: 768px) { font-size: 1.25rem; margin-bottom: 20px; }
+    font-size: 1.0625rem;
+    font-weight: 650;
+    color: #0f172a;
+    letter-spacing: -0.005em;
+    margin: 0 0 12px 0;
+    @media (min-width: 768px) { font-size: 1.1875rem; margin-bottom: 14px; }
 `;
 
 const ContentText = styled.p`
     font-size: 0.9375rem;
-    font-weight: 300;
-    line-height: 1.7;
-    color: #6b7280;
+    font-weight: 400;
+    line-height: 1.75;
+    color: #475569;
     margin: 0 0 24px 0;
     white-space: pre-wrap;
-    @media (min-width: 768px) { font-size: 1rem; }
+    @media (min-width: 768px) { font-size: 0.9375rem; }
 `;
 
 const EmotionsGrid = styled.div`
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 16px;
-    margin: 32px 0;
-    @media (max-width: 640px) { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    gap: 12px;
+    margin: 24px 0;
+    @media (max-width: 640px) { grid-template-columns: repeat(2, 1fr); gap: 10px; }
 `;
 
 const EmotionCard = styled.div`
@@ -1543,15 +2510,16 @@ const EmotionCard = styled.div`
     align-items: center;
     gap: 8px;
     padding: 20px 16px;
-    background: #f9fafb;
+    background: #f8fafc;
+    border: 1px solid #eef1f5;
     border-radius: 12px;
     text-align: center;
     transition: all 0.2s;
 
-    &:hover { background: #f3f4f6; transform: translateY(-2px); }
+    &:hover { background: #f1f5f9; border-color: #e2e8f0; transform: translateY(-2px); }
 
     .emotion-icon {
-        font-size: 3rem;
+        font-size: 2.5rem;
         &.happy   { color: #22c55e; }
         &.neutral { color: #eab308; }
         &.excited { color: #3b82f6; }
@@ -1560,76 +2528,92 @@ const EmotionCard = styled.div`
 
     @media (max-width: 640px) {
         padding: 16px 12px;
-        .emotion-icon { font-size: 2.5rem; }
+        .emotion-icon { font-size: 2.25rem; }
     }
 `;
 
 const EmotionLabel = styled.p`
-    font-size: 0.875rem;
-    font-weight: 500;
-    color: #374151;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #334155;
     margin: 0;
 `;
 
 const EmotionValue = styled.p`
     font-size: 0.8125rem;
-    color: #6b7280;
+    color: #64748b;
     margin: 0;
+    font-variant-numeric: tabular-nums;
 `;
 
-const ReasoningSection = styled.div`margin-top: 32px;`;
+const ReasoningSection = styled.div`margin-top: 28px;`;
 
 const ReasonItem = styled.p`
     font-size: 0.9375rem;
-    font-weight: 300;
+    font-weight: 400;
     line-height: 1.7;
-    color: #6b7280;
-    margin: 0 0 16px 0;
-    strong { color: #374151; font-weight: 500; }
+    color: #475569;
+    margin: 0 0 14px 0;
+    strong { color: #1e293b; font-weight: 600; }
 `;
 
 const VisualMetricsGrid = styled.div`
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 16px;
-    margin: 24px 0;
-    @media (max-width: 640px) { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    gap: 12px;
+    margin: 20px 0;
+    @media (max-width: 640px) { grid-template-columns: repeat(2, 1fr); gap: 10px; }
 `;
 
 const MetricCard = styled.div`
-    padding: 20px;
-    background: #f9fafb;
+    position: relative;
+    padding: 16px 16px 16px 18px;
+    background: #f8fafc;
     border-radius: 12px;
     text-align: center;
-    border: 1px solid #e5e7eb;
+    border: 1px solid #eef1f5;
     transition: all 0.2s;
-    &:hover { border-color: #0284c7; background: #f0f9ff; }
+
+    &::before {
+        content: '';
+        position: absolute;
+        top: 10px; bottom: 10px; left: 0;
+        width: 3px;
+        border-radius: 0 3px 3px 0;
+        background: #7dd3fc;
+        opacity: 0.7;
+    }
+
+    &:hover { border-color: #bae0f7; background: #f0f9ff; transform: translateY(-1px); }
 `;
 
 const MetricLabel = styled.p`
-    font-size: 0.8125rem;
-    color: #6b7280;
-    margin: 0 0 8px 0;
-    font-weight: 500;
+    font-size: 0.75rem;
+    color: #64748b;
+    margin: 0 0 6px 0;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
 `;
 
 const MetricValue = styled.p`
-    font-size: 1.5rem;
-    color: #0284c7;
+    font-size: 1.375rem;
+    color: #0369a1;
     margin: 0;
-    font-weight: 600;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
 `;
 
 const MetricUnit = styled.span`
-    font-size: 0.75rem;
-    font-weight: 400;
-    color: #6b7280;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: #94a3b8;
 `;
 
 const ToneBadge = styled.p`
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: #0284c7;
+    font-size: 0.875rem;
+    font-weight: 650;
+    color: #0369a1;
     margin: 0;
     text-transform: capitalize;
 `;
@@ -1637,42 +2621,42 @@ const ToneBadge = styled.p`
 const AudioMetricsBadge = styled.div`
     display: inline-flex;
     align-items: center;
-    font-size: 0.8125rem;
-    font-weight: 600;
+    font-size: 0.75rem;
+    font-weight: 650;
     color: #6366f1;
     background: #eef2ff;
     border-radius: 8px;
-    padding: 6px 12px;
+    padding: 5px 10px;
     margin: 20px 0 12px;
-    gap: 4px;
+    gap: 5px;
 `;
 
 const AnalyticsHeader = styled.div`
-    margin-bottom: 24px;
-    padding-bottom: 16px;
-    border-bottom: 2px solid rgba(0,0,0,0.08);
+    margin-bottom: 20px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid #e5e7eb;
 `;
 
 const AnalyticsHeaderTitle = styled.h2`
-    font-size: 1rem;
-    font-weight: 700;
-    color: #1a2332;
-    margin: 0 0 4px 0;
-    letter-spacing: 0.01em;
+    font-size: 1.0625rem;
+    font-weight: 650;
+    color: #0f172a;
+    margin: 0 0 3px 0;
+    letter-spacing: -0.005em;
 `;
 
 const AnalyticsHeaderSub = styled.p`
     font-size: 0.8125rem;
-    color: rgba(55,65,81,0.55);
+    color: #94a3b8;
     margin: 0;
     font-weight: 400;
 `;
 
 const AnalyticsPanel = styled.div`
     background: #ffffff;
-    border: 1px solid rgba(0,0,0,0.1);
-    border-radius: 6px;
-    margin-bottom: 16px;
+    border: 1px solid #eef1f5;
+    border-radius: 12px;
+    margin-bottom: 14px;
     overflow: hidden;
 `;
 
@@ -1680,29 +2664,29 @@ const AnalyticsPanelLabel = styled.div`
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 10px 16px;
-    background: rgba(0,0,0,0.025);
-    border-bottom: 1px solid rgba(0,0,0,0.08);
+    padding: 11px 16px;
+    background: #f8fafc;
+    border-bottom: 1px solid #eef1f5;
     font-size: 0.6875rem;
     font-weight: 700;
-    letter-spacing: 0.08em;
-    color: rgba(30,40,55,0.6);
+    letter-spacing: 0.06em;
+    color: #64748b;
     text-transform: uppercase;
 `;
 
 const AnalyticsEmpty = styled.p`
     padding: 24px 20px;
     font-size: 0.875rem;
-    color: rgba(107,114,128,0.7);
+    color: #94a3b8;
     margin: 0;
 `;
 
 const AnalyticsFootnote = styled.p`
     font-size: 0.75rem;
-    color: rgba(107,114,128,0.65);
+    color: #94a3b8;
     margin: 0;
     padding: 10px 16px 14px;
-    border-top: 1px solid rgba(0,0,0,0.06);
+    border-top: 1px solid #f1f5f9;
     line-height: 1.5;
 `;
 
@@ -1710,54 +2694,62 @@ const SuggestionTable = styled.table`width: 100%; border-collapse: collapse;`;
 
 const SuggestionTr = styled.tr`
     vertical-align: top;
-    border-bottom: 1px solid rgba(0,0,0,0.06);
+    border-bottom: 1px solid #f1f5f9;
     transition: background 0.12s;
     &:last-child { border-bottom: none; }
-    &:hover { background: rgba(0,0,0,0.015); }
+    &:hover { background: #f8fafc; }
 `;
 
 const SuggestionNumTd = styled.td`
-    padding: 16px 16px 16px 20px;
-    width: 36px;
+    padding: 16px 12px 16px 20px;
+    width: 40px;
+    vertical-align: top;
+    padding-top: 16px;
+`;
+
+const SuggestionNumBadge = styled.span`
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: #eff6ff;
+    color: #0284c7;
     font-size: 0.6875rem;
     font-weight: 700;
-    letter-spacing: 0.06em;
-    color: rgba(107,114,128,0.45);
-    white-space: nowrap;
-    vertical-align: top;
-    padding-top: 18px;
 `;
 
 const SuggestionCategoryTd = styled.td`
     padding: 16px 16px 16px 0;
-    width: 180px;
+    width: 170px;
     vertical-align: top;
 `;
 
 const SuggestionCategoryName = styled.p`
     font-size: 0.875rem;
     font-weight: 650;
-    color: #1a2332;
-    margin: 0 0 5px 0;
+    color: #0f172a;
+    margin: 0 0 6px 0;
 `;
 
 const SuggestionTag = styled.span`
     display: inline-block;
-    font-size: 0.6375rem;
+    font-size: 0.625rem;
     font-weight: 700;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: rgba(30,64,175,0.7);
-    background: rgba(30,64,175,0.07);
-    border: 1px solid rgba(30,64,175,0.15);
-    border-radius: 3px;
-    padding: 1px 6px;
+    color: #1d4ed8;
+    background: #eff6ff;
+    border: 1px solid #dbeafe;
+    border-radius: 4px;
+    padding: 2px 6px;
 `;
 
 const SuggestionContentTd = styled.td`
     padding: 16px 20px 16px 0;
     font-size: 0.875rem;
-    color: #374151;
+    color: #475569;
     line-height: 1.65;
     vertical-align: top;
 `;
@@ -1767,6 +2759,7 @@ const AudioDeliveryRow = styled.div`
     align-items: stretch;
     padding: 16px 20px;
     gap: 0;
+    flex-wrap: wrap;
 `;
 
 const AudioDeliveryItem = styled.div`
@@ -1774,58 +2767,60 @@ const AudioDeliveryItem = styled.div`
     flex-direction: column;
     gap: 4px;
     flex: 1;
+    min-width: 120px;
     padding: 0 16px;
     &:first-child { padding-left: 0; }
 `;
 
 const AudioDeliveryDivider = styled.div`
     width: 1px;
-    background: rgba(0,0,0,0.08);
+    background: #eef1f5;
     flex-shrink: 0;
+    @media (max-width: 560px) { display: none; }
 `;
 
 const AudioDeliveryLabel = styled.span`
     font-size: 0.6875rem;
     font-weight: 700;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.05em;
     text-transform: uppercase;
-    color: rgba(107,114,128,0.55);
+    color: #94a3b8;
 `;
 
 const AudioDeliveryValue = styled.span`
     font-size: 0.9375rem;
-    font-weight: 600;
-    color: #1a2332;
+    font-weight: 650;
+    color: #0f172a;
     text-transform: capitalize;
 `;
 
 const AudioDeliveryUnit = styled.span`
     font-size: 0.75rem;
     font-weight: 400;
-    color: rgba(107,114,128,0.6);
+    color: #94a3b8;
 `;
 
 const EmotionTable = styled.table`width: 100%; border-collapse: collapse;`;
-const EmotionTableHead = styled.thead`background: rgba(0,0,0,0.02);`;
+const EmotionTableHead = styled.thead`background: #f8fafc;`;
 
 const EmotionTh = styled.th`
-    padding: 8px 16px;
+    padding: 9px 16px;
     font-size: 0.6875rem;
     font-weight: 700;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.05em;
     text-transform: uppercase;
-    color: rgba(55,65,81,0.5);
+    color: #94a3b8;
     text-align: ${p => p.$right ? 'right' : 'left'};
-    border-bottom: 1px solid rgba(0,0,0,0.07);
+    border-bottom: 1px solid #eef1f5;
     white-space: nowrap;
 `;
 
 const EmotionTr = styled.tr`
     background: ${p => p.$isDominant ? 'rgba(2,132,199,0.04)' : 'transparent'};
-    border-left: ${p => p.$isDominant ? '3px solid rgba(2,132,199,0.5)' : '3px solid transparent'};
+    border-left: ${p => p.$isDominant ? '3px solid #0284c7' : '3px solid transparent'};
     transition: background 0.15s;
-    &:not(:last-child) { border-bottom: 1px solid rgba(0,0,0,0.05); }
-    &:hover { background: rgba(0,0,0,0.02); }
+    &:not(:last-child) { border-bottom: 1px solid #f1f5f9; }
+    &:hover { background: #f8fafc; }
 `;
 
 const EmotionTd = styled.td`
@@ -1838,28 +2833,28 @@ const EmotionTd = styled.td`
 const EmotionLabelCell = styled.span`
     font-size: 0.875rem;
     font-weight: ${p => p.$isDominant ? '650' : '500'};
-    color: ${p => p.$isDominant ? '#1a2332' : '#374151'};
+    color: ${p => p.$isDominant ? '#0f172a' : '#475569'};
 `;
 
 const EmotionBarTrack = styled.div`
     height: 6px;
-    background: rgba(0,0,0,0.07);
-    border-radius: 2px;
+    background: #f1f5f9;
+    border-radius: 3px;
     overflow: hidden;
 `;
 
 const EmotionBarFill = styled.div`
     height: 100%;
     width: ${p => p.$pct ?? 0}%;
-    background: ${p => p.$isDominant ? 'rgba(2,132,199,0.75)' : 'rgba(100,116,139,0.45)'};
-    border-radius: 2px;
+    background: ${p => p.$isDominant ? '#0284c7' : '#94a3b8'};
+    border-radius: 3px;
     transition: width 0.5s ease;
 `;
 
 const EmotionPct = styled.span`
     font-size: 0.875rem;
     font-weight: ${p => p.$isDominant ? '700' : '500'};
-    color: ${p => p.$isDominant ? '#0369a1' : '#6b7280'};
+    color: ${p => p.$isDominant ? '#0369a1' : '#64748b'};
     font-variant-numeric: tabular-nums;
 `;
 
@@ -1867,26 +2862,27 @@ const EmotionDominantTag = styled.span`
     display: inline-block;
     font-size: 0.6875rem;
     font-weight: 700;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.03em;
     text-transform: uppercase;
-    color: rgba(2,132,199,0.85);
-    background: rgba(2,132,199,0.1);
-    border: 1px solid rgba(2,132,199,0.2);
-    border-radius: 3px;
+    color: #0369a1;
+    background: #e0f2fe;
+    border: 1px solid #bae6fd;
+    border-radius: 4px;
     padding: 2px 7px;
 `;
 
 const EmotionNullTag = styled.span`
     font-size: 0.875rem;
-    color: rgba(156,163,175,0.6);
+    color: #cbd5e1;
 `;
 
 const OverallScoreRow = styled.div`
     display: flex;
     align-items: center;
     gap: 20px;
-    padding: 16px 20px;
-    border-bottom: 1px solid rgba(0,0,0,0.07);
+    padding: 18px 20px;
+    border-bottom: 1px solid #eef1f5;
+    flex-wrap: wrap;
 `;
 
 const OverallScoreBlock = styled.div`
@@ -1898,7 +2894,7 @@ const OverallScoreBlock = styled.div`
     padding: 14px 16px;
     background: ${p => p.$bg || 'rgba(22,101,52,0.08)'};
     border: 1px solid ${p => p.$border || 'rgba(22,101,52,0.2)'};
-    border-radius: 4px;
+    border-radius: 10px;
     flex-shrink: 0;
 `;
 
@@ -1937,16 +2933,16 @@ const OverallScoreBar = styled.div`
 
 const OverallScoreBarLabel = styled.span`
     font-size: 0.75rem;
-    font-weight: 600;
-    color: rgba(55,65,81,0.6);
+    font-weight: 650;
+    color: #64748b;
     text-transform: uppercase;
-    letter-spacing: 0.05em;
+    letter-spacing: 0.04em;
 `;
 
 const OverallScoreBarTrack = styled.div`
     height: 8px;
-    background: rgba(0,0,0,0.07);
-    border-radius: 2px;
+    background: #f1f5f9;
+    border-radius: 4px;
     overflow: hidden;
 `;
 
@@ -1954,37 +2950,39 @@ const OverallScoreBarFill = styled.div`
     height: 100%;
     width: ${p => p.$pct ?? 0}%;
     background: ${p => p.$color || '#166534'};
-    opacity: 0.7;
-    border-radius: 2px;
+    opacity: 0.8;
+    border-radius: 4px;
     transition: width 0.6s ease;
 `;
 
 const OverallScoreBarLegend = styled.div`
     display: flex;
     justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px;
     font-size: 0.6875rem;
-    color: rgba(107,114,128,0.55);
+    color: #94a3b8;
     font-weight: 500;
 `;
 
 const ClarityTable = styled.table`width: 100%; border-collapse: collapse;`;
-const ClarityTableHead = styled.thead`background: rgba(0,0,0,0.02);`;
+const ClarityTableHead = styled.thead`background: #f8fafc;`;
 
 const ClarityTh = styled.th`
-    padding: 8px 16px;
+    padding: 9px 16px;
     font-size: 0.6875rem;
     font-weight: 700;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.05em;
     text-transform: uppercase;
-    color: rgba(55,65,81,0.5);
+    color: #94a3b8;
     text-align: ${p => p.$right ? 'right' : 'left'};
-    border-bottom: 1px solid rgba(0,0,0,0.07);
+    border-bottom: 1px solid #eef1f5;
     white-space: nowrap;
 `;
 
 const ClarityTr = styled.tr`
-    &:not(:last-child) { border-bottom: 1px solid rgba(0,0,0,0.05); }
-    &:hover { background: rgba(0,0,0,0.015); }
+    &:not(:last-child) { border-bottom: 1px solid #f1f5f9; }
+    &:hover { background: #f8fafc; }
 `;
 
 const ClarityTd = styled.td`
@@ -1994,16 +2992,17 @@ const ClarityTd = styled.td`
     width: ${p => p.$wide ? '38%' : 'auto'};
 `;
 
-const ClarityMetricName = styled.span`font-size: 0.875rem; font-weight: 500; color: #374151;`;
-const ClarityMetricVal = styled.span`font-size: 0.9375rem; font-weight: 700; color: #1a2332; font-variant-numeric: tabular-nums;`;
-const ClarityUnit = styled.span`font-size: 0.75rem; font-weight: 400; color: rgba(107,114,128,0.7); margin-left: 2px;`;
+const ClarityMetricName = styled.span`font-size: 0.875rem; font-weight: 500; color: #475569;`;
+const ClarityMetricVal = styled.span`font-size: 0.9375rem; font-weight: 700; color: #0f172a; font-variant-numeric: tabular-nums;`;
+const ClarityUnit = styled.span`font-size: 0.75rem; font-weight: 400; color: #94a3b8; margin-left: 2px;`;
 
-const ClarityBarTrack = styled.div`height: 6px; background: rgba(0,0,0,0.07); border-radius: 2px; overflow: hidden;`;
+const ClarityBarTrack = styled.div`height: 6px; background: #f1f5f9; border-radius: 3px; overflow: hidden;`;
 const ClarityBarFill = styled.div`
     height: 100%;
     width: ${p => p.$pct ?? 0}%;
-    background: rgba(30,64,175,0.45);
-    border-radius: 2px;
+    background: #3b5fc4;
+    opacity: 0.55;
+    border-radius: 3px;
     transition: width 0.5s ease;
 `;
 
@@ -2039,35 +3038,35 @@ const NoDialogueNotice = styled.div`
     justify-content: center;
     text-align: center;
     padding: 48px 32px;
-    background: rgba(0,0,0,0.015);
-    border: 1px dashed rgba(0,0,0,0.12);
-    border-radius: 8px;
+    background: #f8fafc;
+    border: 1px dashed #e2e8f0;
+    border-radius: 12px;
     gap: 10px;
 `;
 
 const NoDialogueIcon = styled.div`
     margin-bottom: 4px;
-    color: #9ca3af;
+    color: #cbd5e1;
 `;
 
 const NoDialogueTitle = styled.div`
     font-size: 1rem;
     font-weight: 650;
-    color: #374151;
+    color: #334155;
     letter-spacing: -0.01em;
 `;
 
 const NoDialogueText = styled.div`
     font-size: 0.875rem;
-    color: #6b7280;
+    color: #64748b;
     line-height: 1.65;
     max-width: 460px;
 `;
 
 const NoDialogueSub = styled.div`
     font-size: 0.8125rem;
-    font-weight: 600;
-    color: #9ca3af;
+    font-weight: 650;
+    color: #94a3b8;
     text-transform: uppercase;
     letter-spacing: 0.05em;
     margin-top: 8px;

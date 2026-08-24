@@ -131,7 +131,7 @@ export default function Leftbar({ isMobileMenuOpen, closeMobileMenu }) {
 
             <StorageSection>
               <StorageHeader>
-                <FiHardDrive size={14} />
+                <StorageIconBadge><FiHardDrive size={12} /></StorageIconBadge>
                 <StorageTitle>Storage</StorageTitle>
               </StorageHeader>
               <StorageTrack>
@@ -207,7 +207,7 @@ export default function Leftbar({ isMobileMenuOpen, closeMobileMenu }) {
 
                 <StorageSection>
                   <StorageHeader>
-                    <FiHardDrive size={14} />
+                    <StorageIconBadge><FiHardDrive size={12} /></StorageIconBadge>
                     <StorageTitle>Storage</StorageTitle>
                   </StorageHeader>
                   <StorageTrack>
@@ -314,6 +314,7 @@ const MenuLink = styled(Link)`
 `;
 
 const MenuItemWrapper = styled.div`
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -323,6 +324,19 @@ const MenuItemWrapper = styled.div`
   cursor: pointer;
   transition: all 0.2s ease;
   background-color: ${props => props.$isActive ? '#dbeafe' : 'transparent'};
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: -12px;
+    top: 8px;
+    bottom: 8px;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: #0284c7;
+    opacity: ${props => props.$isActive ? '1' : '0'};
+    transition: opacity 0.2s ease;
+  }
 
   &:hover {
     background-color: ${props => props.$isActive ? '#dbeafe' : '#f1f5f9'};
@@ -368,9 +382,21 @@ const StorageSection = styled.div`
 const StorageHeader = styled.div`
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 10px;
+  gap: 8px;
+  margin-bottom: 12px;
   color: #6b7280;
+`;
+
+const StorageIconBadge = styled.span`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #0284c7;
+  flex-shrink: 0;
 `;
 
 const StorageTitle = styled.span`

@@ -11,7 +11,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from './Login';
 
 
-function Dashboard() {
+function Dashboard(){
 
     const navigate = useNavigate();
     const { user, loading } = useAuth();

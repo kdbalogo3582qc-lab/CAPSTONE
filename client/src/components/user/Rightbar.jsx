@@ -314,7 +314,12 @@ function Rightbar({ user, analysisResult, onCollapseChange, isStreaming = false,
             <>
             <HeaderSection>
               <HeaderTitleRow>
-                <HeaderTitle>What can I help with?</HeaderTitle>
+                <HeaderTitleGroup>
+                  <HeaderLogoBadge>
+                    <img src={logo} alt="" />
+                  </HeaderLogoBadge>
+                  <HeaderTitle>What can I help with?</HeaderTitle>
+                </HeaderTitleGroup>
                 <SuggestionsToggleButton
                   onClick={toggleSuggestionsCollapse}
                   aria-label={isSuggestionsCollapsed ? "Show suggestions" : "Hide suggestions"}
@@ -433,7 +438,12 @@ function Rightbar({ user, analysisResult, onCollapseChange, isStreaming = false,
             <RightbarContent>
               <HeaderSection>
                 <HeaderTitleRow>
-                  <HeaderTitle>What can I help with?</HeaderTitle>
+                  <HeaderTitleGroup>
+                    <HeaderLogoBadge>
+                      <img src={logo} alt="" />
+                    </HeaderLogoBadge>
+                    <HeaderTitle>What can I help with?</HeaderTitle>
+                  </HeaderTitleGroup>
                   <SuggestionsToggleButton
                     onClick={toggleSuggestionsCollapse}
                     aria-label={isSuggestionsCollapsed ? "Show suggestions" : "Hide suggestions"}
@@ -685,6 +695,30 @@ const HeaderTitleRow = styled.div`
   margin-bottom: 8px;
 `;
 
+const HeaderTitleGroup = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+`;
+
+const HeaderLogoBadge = styled.div`
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: white;
+  border: 1px solid #e5e7eb;
+  flex-shrink: 0;
+
+  img {
+    width: 16px;
+    height: 16px;
+    object-fit: contain;
+  }
+`;
+
 const HeaderTitle = styled.h1`
   font-size: 1.25rem;
   font-weight: 600;
@@ -758,19 +792,36 @@ const SuggestionsGrid = styled.div`
 `;
 
 const SuggestionCard = styled.button`
+  position: relative;
   background: ${props => props.$isDisabled ? 'rgba(243, 244, 246, 0.4)' : 'rgba(243, 244, 246, 0.6)'};
   cursor: ${props => props.$isDisabled ? 'not-allowed' : 'pointer'};
-  padding: 12px 16px;
+  padding: 12px 16px 12px 18px;
   border-radius: 10px;
   transition: all 0.2s ease;
   border: 1px solid transparent;
   text-align: left;
   opacity: ${props => props.$isDisabled ? 0.6 : 1};
+  overflow: hidden;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 10px; bottom: 10px; left: 0;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: #0284c7;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+  }
 
   &:hover:not(:disabled) {
     background: rgba(219, 234, 254, 0.6);
     border-color: rgba(2, 132, 199, 0.2);
     transform: translateY(-2px);
+  }
+
+  &:hover:not(:disabled)::before {
+    opacity: 1;
   }
 
   &:active:not(:disabled) {
