@@ -129,6 +129,43 @@ def _normalize_community_standards(value):
     }
 
 
+def _parse_json_object(text):
+    """Extract one JSON object from a model response."""
+    json_text = (text or "").strip().replace("```json", "").replace("```", "").strip()
+    start = json_text.find("{")
+    end = json_text.rfind("}") + 1
+    if start == -1 or end <= start:
+        raise ValueError("Model returned no valid JSON")
+    return json.loads(json_text[start:end])
+
+
+COMMUNITY_STANDARDS_PROMPT = """You are the mandatory Community Standards gate for an advertisement video. Inspect the complete video: visuals, on-screen text, spoken/sung words, sound effects, and the overall message and call to action. Do not analyze the ad's effectiveness, audience, transcript, or any other attribute. Return ONLY the JSON decision below.
+
+The advertisement must be safe for both children and adults. Reject content that promotes, encourages, glorifies, normalizes, or instructs viewers to engage in nudity or sexually explicit content; illegal drugs/drug use; smoking, vaping or tobacco use; excessive violence, gore or disturbing content; hate speech, harassment or discrimination; illegal activities or dangerous behavior; or sexual/sexually suggestive content involving minors. Reject anything otherwise unsuitable for children or general audiences. Reject if the video cannot be assessed confidently.
+
+Educational, awareness, prevention, health, and public-service messages may be allowed when their overall intent is to discourage, warn about, prevent, or help viewers avoid harmful behavior (for example, “Avoid using drugs,” “Stop smoking,” or “Say no to drugs”). That exception never permits graphic imagery, sexual content, harmful instructions, or a message that ultimately promotes or glorifies the behavior. Evaluate context and intent, not keywords alone.
+
+Set approved only when every category is clearly safe. Otherwise reject. Each category must be exactly clear, allowed_educational_context, or violation. List only violation category keys.
+
+{
+  "decision": "approved | rejected",
+  "safe_for_general_audiences": true,
+  "reason": "concise, context-aware explanation",
+  "categories": {
+    "nudity_or_sexual_content": "clear | allowed_educational_context | violation",
+    "illegal_drugs_or_drug_use": "clear | allowed_educational_context | violation",
+    "smoking_vaping_or_tobacco": "clear | allowed_educational_context | violation",
+    "violence_gore_or_disturbing_content": "clear | allowed_educational_context | violation",
+    "hate_harassment_or_discrimination": "clear | allowed_educational_context | violation",
+    "illegal_activities_or_dangerous_behavior": "clear | allowed_educational_context | violation",
+    "sexual_content_involving_minors": "clear | allowed_educational_context | violation",
+    "other_general_audience_unsuitability": "clear | allowed_educational_context | violation"
+  },
+  "violations": []
+}
+"""
+
+
 def _build_comments_block(comments):
     """
     Turn a raw comments payload (JSON string or list of strings/objects) into a
@@ -198,7 +235,35 @@ def transcribe_and_translate_audio(video_path, comments=None):
         with open(working_video_path, "rb") as vf:
             video_bytes = base64.b64encode(vf.read()).decode("utf-8")
 
-        logging.info("Video encoded. Running analysis...")
+        logging.info("Video encoded. Running Community Standards review...")
+        moderation_response = client.models.generate_content(
+            model=MODEL_ID,
+            contents=[
+                types.Part.from_bytes(data=base64.b64decode(video_bytes), mime_type="video/mp4"),
+                COMMUNITY_STANDARDS_PROMPT,
+            ],
+        )
+        if not moderation_response.text:
+            raise RuntimeError("Community Standards review returned no decision")
+
+        community_standards = _normalize_community_standards(
+            _parse_json_object(moderation_response.text)
+        )
+        if community_standards["decision"] != "approved":
+            logging.info("Video rejected by Community Standards; analysis skipped.")
+            return {
+                "original_transcript": "",
+                "translated_transcript": "",
+                "detected_language": "unknown",
+                "language_confidence": 0.0,
+                "community_standards": community_standards,
+                "audio_analysis": {},
+                "emotion_analysis": {},
+                "speech_clarity": {},
+                "summary": {},
+            }
+
+        logging.info("Community Standards approved. Running analysis...")
 
         comments_block = _build_comments_block(comments)
 
@@ -460,15 +525,7 @@ RETURN FORMAT — copy this structure exactly, fill all values:
             logging.error(f"Returned empty response.text. Reason: {reason_str}")
             raise RuntimeError(f"Returned no analyzable content for this video ({reason_str})")
 
-        json_text = response.text.strip().replace("```json", "").replace("```", "").strip()
-        start = json_text.find("{")
-        end   = json_text.rfind("}") + 1
-        if start == -1 or end <= start:
-            raise ValueError("Model returned no valid JSON")
-
-        result = json.loads(json_text[start:end])
-
-        community_standards = _normalize_community_standards(result.get("community_standards"))
+        result = _parse_json_object(response.text)
 
         original   = result.get("original_transcript", "").strip()
         translated = result.get("translated_transcript", "").strip()

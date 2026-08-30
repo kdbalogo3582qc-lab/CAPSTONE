@@ -183,6 +183,24 @@ function recordCommunityStandardsDecision(videoKey, result) {
     });
 }
 
+function getCommunityStandardsRejection(result) {
+    const moderation = result?.community_standards;
+    if (moderation?.decision === "approved" && moderation?.safe_for_general_audiences === true) {
+        return null;
+    }
+
+    return {
+        // Keep the rejection suitable for general audiences too: do not echo
+        // potentially inappropriate model descriptions back to the client.
+        message: "Advertisement rejected: This video does not meet the Community Standards for a general audience.",
+        community_standards: {
+            decision: "rejected",
+            safe_for_general_audiences: false,
+            reason: "This video does not meet the Community Standards for a general audience.",
+        },
+    };
+}
+
 // ─── Utility: parse Python output using sentinel marker ───────────────────────
 // python_script.py writes:  __RESULT__{ ...json... }
 // This is robust against library warnings leaking onto stdout on Windows.
@@ -251,6 +269,8 @@ app.post("/process-video", (req, res) => {
             const parsed = parsePythonOutput(pythonOutput);
             if (parsed.error) return res.status(500).json({ error: parsed.error });
             recordCommunityStandardsDecision(uploadedVideo.key, parsed);
+            const rejection = getCommunityStandardsRejection(parsed);
+            if (rejection) return res.status(422).json({ error: rejection.message, ...rejection });
             return res.json(parsed);
         } catch (err) {
             console.error("Failed to parse Python output:", err.message);
@@ -335,7 +355,9 @@ app.get("/process-video-stream", (req, res) => {
                 send("error", { message: parsed.error });
             } else {
                 recordCommunityStandardsDecision(uploadedVideo.key, parsed);
-                send("result", { success: true, data: parsed });
+                const rejection = getCommunityStandardsRejection(parsed);
+                if (rejection) send("error", rejection);
+                else send("result", { success: true, data: parsed });
             }
         } catch (err) {
             console.error("SSE parse error:", err.message);
@@ -625,14 +647,12 @@ app.post("/save-video", verifyToken, (req, res) => {
 
     const moderationDecision = communityStandardsDecisions.get(uploadedVideo.key);
     if (!moderationDecision?.approved) {
-        const reason = moderationDecision?.moderation?.reason ||
-            "This advertisement has not passed the Community Standards Protocol.";
         return res.status(422).json({
-            error: `Advertisement rejected: ${reason}`,
-            community_standards: moderationDecision?.moderation || {
+            error: "Advertisement rejected: This video does not meet the Community Standards for a general audience.",
+            community_standards: {
                 decision: "rejected",
                 safe_for_general_audiences: false,
-                reason: "No completed, approved Community Standards evaluation exists for this video.",
+                reason: "This video does not meet the Community Standards for a general audience.",
             },
         });
     }
