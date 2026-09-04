@@ -375,8 +375,8 @@ Identify WHO is most likely the target audience of this specific video — not a
 like "children", "adults", "students", or "general public". Use whatever combination of the
 following dimensions the evidence actually supports: age range, gender (only with sufficient
 evidence), occupation/profession, education level, geographic/location characteristics,
-income/economic segment (only if reasonably supported), interests, lifestyle, and other relevant
-behavioral characteristics. If a dimension isn't supported by evidence, set its value to
+interests, lifestyle, and other relevant behavioral characteristics. If a dimension isn't
+supported by evidence, set its value to
 "Unknown" or "Not enough evidence" — never invent it.
 {comments_block}
 Produce a ranked list: one primary_segment (the strongest, best-evidenced match) and zero or more
@@ -457,7 +457,6 @@ RETURN FORMAT — copy this structure exactly, fill all values:
           "occupation": "<or 'Unknown'>",
           "education_level": "<or 'Unknown'>",
           "location": "<or 'Unknown'>",
-          "income_segment": "<only if reasonably supported, else 'Unknown'>",
           "interests": ["<interest>", "..."],
           "lifestyle": "<or 'Unknown'>"
         },
