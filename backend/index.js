@@ -224,6 +224,21 @@ function parsePythonOutput(raw) {
     throw new Error("No JSON found in Python output");
 }
 
+// Do not expose income-based audience segmentation through the API, regardless
+// of whether it is included by the analysis service.
+function removeIncomeSegment(value) {
+    if (Array.isArray(value)) {
+        value.forEach(removeIncomeSegment);
+        return value;
+    }
+
+    if (!value || typeof value !== "object") return value;
+
+    delete value.income_segment;
+    Object.values(value).forEach(removeIncomeSegment);
+    return value;
+}
+
 function spawnPython(args) {
     const isWin = process.platform === "win32";
     const cmd = isWin ? "py" : "python3";
@@ -266,7 +281,7 @@ app.post("/process-video", (req, res) => {
 
     pythonProcess.on("close", () => {
         try {
-            const parsed = parsePythonOutput(pythonOutput);
+            const parsed = removeIncomeSegment(parsePythonOutput(pythonOutput));
             if (parsed.error) return res.status(500).json({ error: parsed.error });
             recordCommunityStandardsDecision(uploadedVideo.key, parsed);
             const rejection = getCommunityStandardsRejection(parsed);
@@ -350,7 +365,7 @@ app.get("/process-video-stream", (req, res) => {
             return;
         }
         try {
-            const parsed = parsePythonOutput(pythonOutput);
+            const parsed = removeIncomeSegment(parsePythonOutput(pythonOutput));
             if (parsed.error) {
                 send("error", { message: parsed.error });
             } else {
@@ -380,7 +395,7 @@ app.post("/processPrompt", (req, res) => {
         proc.stderr.on("data", (d) => { console.error(`[Python stderr]: ${d}`); });
         proc.on("close", () => {
             try {
-                return res.json(parsePythonOutput(out));
+                return res.json(removeIncomeSegment(parsePythonOutput(out)));
             } catch {
                 return res.status(500).json({ error: "Invalid JSON response from Python" });
             }
