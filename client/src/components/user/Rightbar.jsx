@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import logo from '../../assets/logo.svg';
 import Swal from 'sweetalert2';
 import axios from 'axios';
 import ApiConfig from '../config/LocalConfigApi';
 import styled from 'styled-components';
 import { HiChevronLeft, HiChevronRight, HiChevronUp, HiChevronDown } from 'react-icons/hi';
-import { IoSend } from 'react-icons/io5';
+import { FiMessageCircle, FiSend } from 'react-icons/fi';
 
 function Rightbar({ user, analysisResult, onCollapseChange, isStreaming = false, resetKey = 0 }) {
   const conversationContainerRef = useRef(null);
@@ -316,7 +315,7 @@ function Rightbar({ user, analysisResult, onCollapseChange, isStreaming = false,
               <HeaderTitleRow>
                 <HeaderTitleGroup>
                   <HeaderLogoBadge>
-                    <img src={logo} alt="" />
+                    <FiMessageCircle size={17} aria-hidden="true" />
                   </HeaderLogoBadge>
                   <HeaderTitle>What can I help with?</HeaderTitle>
                 </HeaderTitleGroup>
@@ -366,7 +365,7 @@ function Rightbar({ user, analysisResult, onCollapseChange, isStreaming = false,
                   {/* AI Response */}
                   <AIMessageWrapper>
                     <AIAvatar>
-                      <img src={logo} alt="AI Assistant" />
+                      <FiMessageCircle size={17} aria-hidden="true" />
                     </AIAvatar>
                     <AIMessage>
                       {message.response === null ? (
@@ -412,7 +411,7 @@ function Rightbar({ user, analysisResult, onCollapseChange, isStreaming = false,
                   disabled={!analysisResult || isLoading || !userInput.trim() || isStreaming}
                   $isDisabled={!analysisResult || isLoading || !userInput.trim() || isStreaming}
                 >
-                  <IoSend size={18} />
+                <FiSend size={17} />
                 </SendButton>
               </InputWrapper>
             </InputForm>
@@ -440,7 +439,7 @@ function Rightbar({ user, analysisResult, onCollapseChange, isStreaming = false,
                 <HeaderTitleRow>
                   <HeaderTitleGroup>
                     <HeaderLogoBadge>
-                      <img src={logo} alt="" />
+                      <FiMessageCircle size={17} aria-hidden="true" />
                     </HeaderLogoBadge>
                     <HeaderTitle>What can I help with?</HeaderTitle>
                   </HeaderTitleGroup>
@@ -493,7 +492,7 @@ function Rightbar({ user, analysisResult, onCollapseChange, isStreaming = false,
                     {/* AI Response */}
                     <AIMessageWrapper>
                       <AIAvatar>
-                        <img src={logo} alt="AI Assistant" />
+                        <FiMessageCircle size={17} aria-hidden="true" />
                       </AIAvatar>
                       <AIMessage>
                         {message.response === null ? (
@@ -531,7 +530,7 @@ function Rightbar({ user, analysisResult, onCollapseChange, isStreaming = false,
                     disabled={!analysisResult || isLoading || !userInput.trim() || isStreaming}
                     $isDisabled={!analysisResult || isLoading || !userInput.trim() || isStreaming}
                   >
-                    <IoSend size={18} />
+                  <FiSend size={17} />
                   </SendButton>
                 </InputWrapper>
               </InputForm>
@@ -552,7 +551,7 @@ const DesktopRightbar = styled.div`
   right: 0;
   bottom: 0;
   background: white;
-  border-left: 1px solid #e5e7eb;
+  border-left: 1px solid #e4e9f0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -571,20 +570,19 @@ const CollapseButton = styled.button`
   height: 30px;
   border-radius: 50%;
   background: white;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e4e9f0;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: all 0.2s;
   z-index: 50;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: none;
 
   &:hover {
-    background: #f9fafb;
-    border-color: #0284c7;
-    color: #0284c7;
-    transform: scale(1.05);
+    background: #f6f9fc;
+    border-color: #2c6edb;
+    color: #2c6edb;
   }
 
   &:active {
@@ -600,10 +598,10 @@ const MobileToggleButton = styled.button`
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #075985 0%, #0284c7 100%);
+  background: #2c6edb;
   color: white;
   border: none;
-  box-shadow: 0 4px 12px rgba(2, 132, 199, 0.4);
+  box-shadow: none;
   cursor: pointer;
   z-index: 50;
   align-items: center;
@@ -615,8 +613,7 @@ const MobileToggleButton = styled.button`
   }
 
   &:hover {
-    transform: scale(1.1);
-    box-shadow: 0 6px 16px rgba(2, 132, 199, 0.5);
+    background: #245ebc;
   }
 
   @media (max-width: 1024px) {
@@ -652,7 +649,8 @@ const MobileBackdrop = styled.div`
 const MobileRightbar = styled.div`
   width: 90%;
   max-width: 380px;
-  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.15);
+  box-shadow: none;
+  border-left: 1px solid #e4e9f0;
   position: fixed;
   top: 64px;
   right: 0;
@@ -709,20 +707,16 @@ const HeaderLogoBadge = styled.div`
   height: 26px;
   border-radius: 50%;
   background: white;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e4e9f0;
+  color: #2c6edb;
   flex-shrink: 0;
 
-  img {
-    width: 16px;
-    height: 16px;
-    object-fit: contain;
-  }
 `;
 
 const HeaderTitle = styled.h1`
   font-size: 1.25rem;
   font-weight: 600;
-  color: #1f2937;
+  color: #14181f;
   margin: 0;
 
   @media (max-width: 768px) {
@@ -735,7 +729,7 @@ const SuggestionsToggleButton = styled.button`
   height: 32px;
   border-radius: 8px;
   background: white;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e4e9f0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -744,9 +738,9 @@ const SuggestionsToggleButton = styled.button`
   color: #6b7280;
 
   &:hover {
-    background: #f9fafb;
-    border-color: #0284c7;
-    color: #0284c7;
+    background: #f6f9fc;
+    border-color: #2c6edb;
+    color: #2c6edb;
   }
 
   &:active {
@@ -793,35 +787,19 @@ const SuggestionsGrid = styled.div`
 
 const SuggestionCard = styled.button`
   position: relative;
-  background: ${props => props.$isDisabled ? 'rgba(243, 244, 246, 0.4)' : 'rgba(243, 244, 246, 0.6)'};
+  background: ${props => props.$isDisabled ? '#f6f9fc' : '#ffffff'};
   cursor: ${props => props.$isDisabled ? 'not-allowed' : 'pointer'};
-  padding: 12px 16px 12px 18px;
+  padding: 13px 14px;
   border-radius: 10px;
   transition: all 0.2s ease;
-  border: 1px solid transparent;
+  border: 1px solid #e4e9f0;
   text-align: left;
   opacity: ${props => props.$isDisabled ? 0.6 : 1};
   overflow: hidden;
 
-  &::before {
-    content: '';
-    position: absolute;
-    top: 10px; bottom: 10px; left: 0;
-    width: 3px;
-    border-radius: 0 3px 3px 0;
-    background: #0284c7;
-    opacity: 0;
-    transition: opacity 0.2s ease;
-  }
-
   &:hover:not(:disabled) {
-    background: rgba(219, 234, 254, 0.6);
-    border-color: rgba(2, 132, 199, 0.2);
-    transform: translateY(-2px);
-  }
-
-  &:hover:not(:disabled)::before {
-    opacity: 1;
+    background: #eaf2fb;
+    border-color: #2c6edb;
   }
 
   &:active:not(:disabled) {
@@ -836,7 +814,7 @@ const SuggestionCard = styled.button`
 const SuggestionTitle = styled.div`
   font-size: 0.9375rem;
   font-weight: 500;
-  color: #1f2937;
+  color: #14181f;
   margin-bottom: 4px;
 `;
 
@@ -885,21 +863,21 @@ const UserMessageWrapper = styled.div`
 `;
 
 const UserMessage = styled.div`
-  background: #0284c7;
+  background: #2c6edb;
   color: white;
   padding: 12px 16px;
   border-radius: 12px 12px 4px 12px;
   font-size: 0.875rem;
   max-width: 80%;
   word-wrap: break-word;
-  box-shadow: 0 2px 4px rgba(2, 132, 199, 0.2);
+  box-shadow: none;
 `;
 
 const UserAvatar = styled.div`
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #075985 0%, #0284c7 100%);
+  background: #2c6edb;
   color: white;
   display: flex;
   align-items: center;
@@ -907,7 +885,7 @@ const UserAvatar = styled.div`
   font-size: 0.75rem;
   font-weight: 600;
   flex-shrink: 0;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: none;
 `;
 
 const AIMessageWrapper = styled.div`
@@ -925,24 +903,21 @@ const AIAvatar = styled.div`
   justify-content: center;
   background: white;
   border-radius: 50%;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-
-  img {
-    width: 24px;
-    height: 24px;
-    object-fit: contain;
-  }
+  border: 1px solid #e4e9f0;
+  color: #2c6edb;
+  box-shadow: none;
 `;
 
 const AIMessage = styled.div`
-  background: #f3f4f6;
-  color: #4b5563;
+  background: #f6f9fc;
+  color: #14181f;
   padding: 12px 16px;
   border-radius: 12px 12px 12px 4px;
   font-size: 0.875rem;
   max-width: 80%;
   word-wrap: break-word;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  border: 1px solid #e4e9f0;
+  box-shadow: none;
 `;
 
 const MessageContent = styled.div`
@@ -1051,7 +1026,7 @@ const TypingIndicator = styled.div`
 
 const InputForm = styled.form`
   padding-top: 12px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid #e4e9f0;
 `;
 
 const InputWrapper = styled.div`
@@ -1063,19 +1038,19 @@ const InputWrapper = styled.div`
 const StyledInput = styled.input`
   flex: 1;
   padding: 10px 14px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #e4e9f0;
   border-radius: 10px;
   font-size: 0.875rem;
   outline: none;
   transition: all 0.2s;
 
   &:focus {
-    border-color: #0284c7;
-    box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.1);
+    border-color: #2c6edb;
+    box-shadow: none;
   }
 
   &:disabled {
-    background: #f9fafb;
+    background: #f6f9fc;
     cursor: not-allowed;
     color: #9ca3af;
   }
@@ -1089,7 +1064,7 @@ const SendButton = styled.button`
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: ${props => props.$isDisabled ? '#e5e7eb' : 'linear-gradient(135deg, #075985 0%, #0284c7 100%)'};
+  background: ${props => props.$isDisabled ? '#e4e9f0' : '#2c6edb'};
   color: white;
   border: none;
   display: flex;
@@ -1100,8 +1075,7 @@ const SendButton = styled.button`
   flex-shrink: 0;
 
   &:hover:not(:disabled) {
-    transform: scale(1.05);
-    box-shadow: 0 4px 8px rgba(2, 132, 199, 0.3);
+    background: #245ebc;
   }
 
   &:active:not(:disabled) {

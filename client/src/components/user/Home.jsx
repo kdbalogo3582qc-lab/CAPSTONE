@@ -7,9 +7,36 @@ import styled, { keyframes } from 'styled-components';
 import { useAuth } from "./Login";
 import { GoTag } from "react-icons/go";
 import { FaShareAlt, FaSmile } from "react-icons/fa";
-import { FiDownload, FiBookmark, FiRotateCcw, FiCheckCircle, FiLoader, FiUploadCloud, FiInfo } from "react-icons/fi";
-import { MdOutlineFormatLineSpacing, MdOutlineAssessment, MdLockOutline } from "react-icons/md";
-import { FaStreetView } from "react-icons/fa6";
+import {
+    FiActivity,
+    FiAlignLeft,
+    FiArrowLeft,
+    FiArrowRight,
+    FiBarChart2,
+    FiBookmark,
+    FiCalendar,
+    FiCheckCircle,
+    FiChevronRight,
+    FiClipboard,
+    FiClock,
+    FiDownload,
+    FiFileText,
+    FiFilm,
+    FiGlobe,
+    FiHeart,
+    FiInfo,
+    FiLoader,
+    FiMessageSquare,
+    FiMic,
+    FiPlay,
+    FiRotateCcw,
+    FiShare2,
+    FiSmile,
+    FiTrendingUp,
+    FiTrash2,
+    FiUploadCloud,
+    FiUsers,
+} from "react-icons/fi";
 import { BsStars, BsLightbulbFill } from "react-icons/bs";
 import { FaWaveSquare } from "react-icons/fa";
 import Rightbar from "./Rightbar.jsx";
@@ -18,15 +45,55 @@ import { RiEmotionFill, RiEmotionNormalFill } from "react-icons/ri";
 import { PiSmileySadFill } from "react-icons/pi";
 import { HiMenuAlt3 } from "react-icons/hi";
 import { GiMicrophone } from "react-icons/gi";
-import { TbMoodCrazyHappyFilled, TbActivityHeartbeat } from "react-icons/tb";
+import { TbMoodCrazyHappyFilled } from "react-icons/tb";
 import Swal from "sweetalert2";
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 
 // ─── FIX: Set withCredentials globally so ALL axios requests send cookies ─────
 axios.defaults.withCredentials = true;
 
+const buildSavedVideoUrl = (videoPath) => {
+    if (!videoPath) return "";
+    const base = ApiUrl.apiURL.replace(/\/api\/?$/, '').replace(/\/$/, '');
+    return `${base}/${videoPath}`;
+};
+
+const formatSavedVideoName = (videoPath) => {
+    if (!videoPath) return "Untitled recording";
+    const fileName = String(videoPath).split("/").pop() || videoPath;
+    return fileName.replace(/^\d+-/, "");
+};
+
+const formatSavedBytes = (bytes) => {
+    if (!bytes) return "0 B";
+    const units = ["B", "KB", "MB", "GB"];
+    const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+    return `${(bytes / Math.pow(1024, index)).toFixed(1)} ${units[index]}`;
+};
+
+const formatSavedDate = (dateValue) => new Date(dateValue).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+});
+
+const getSavedTone = (recording) => {
+    try {
+        const extra = typeof recording?.extra_results === 'string'
+            ? JSON.parse(recording.extra_results)
+            : recording?.extra_results;
+        return extra?.tone || null;
+    } catch { return null; }
+};
+
 function Home() {
     const { user, loading } = useAuth();
+    const location = useLocation();
+    const { id: savedVideoId } = useParams();
+    const isSavedRecordingView = Boolean(savedVideoId);
+    const routeSavedVideo = location.state?.video || null;
 
     const [videoFile, setVideoFile] = useState(null);
 
@@ -93,7 +160,7 @@ function Home() {
         } catch { }
     };
 
-    const [date, setDate] = useState(new Date());
+    const [date] = useState(new Date());
     const [formattedDate, setFormattedDate] = useState("");
 
     const userFirstName = (() => {
@@ -120,6 +187,10 @@ function Home() {
     };
     const [isSaving, setIsSaving] = useState(false);
     const [resetKey, setResetKey] = useState(0);
+    const [savedRecording, setSavedRecording] = useState(routeSavedVideo);
+    const [savedRecordingLoading, setSavedRecordingLoading] = useState(isSavedRecordingView);
+    const [recordingsOverview, setRecordingsOverview] = useState({ items: [], count: 0 });
+    const [recordingsOverviewLoading, setRecordingsOverviewLoading] = useState(false);
 
     const [progressLogs, setProgressLogs] = useState([]);
     const [isStreaming, setIsStreaming] = useState(false);
@@ -132,6 +203,60 @@ function Home() {
 
     const navigate = useNavigate();
     const progressPanelRef = useRef(null);
+    const videoPlayerRef = useRef(null);
+
+    useEffect(() => {
+        if (!isSavedRecordingView || !user) return;
+
+        const applySavedRecording = (recording) => {
+            let parsedAnalysis = null;
+            try {
+                parsedAnalysis = typeof recording.analysis === "string"
+                    ? JSON.parse(recording.analysis)
+                    : recording.analysis;
+            } catch { }
+
+            setSavedRecording(recording);
+            setAnalysisResultState(parsedAnalysis);
+            setUploadedVideoPathState(recording.video_path || null);
+            setUploadedVideoNameState(formatSavedVideoName(recording.video_path));
+            setUploadedFileSizeState(recording.file_size || 0);
+            setPreviewURL(recording.video_path ? buildSavedVideoUrl(recording.video_path) : "");
+            setViewVideo(true);
+            setSavedRecordingLoading(false);
+        };
+
+        if (routeSavedVideo && String(routeSavedVideo.id) === String(savedVideoId)) {
+            applySavedRecording(routeSavedVideo);
+            return;
+        }
+
+        setSavedRecordingLoading(true);
+        axios.get(`${ApiUrl.apiURL}/saved-videos`, { withCredentials: true })
+            .then(({ data }) => {
+                const recording = data.find((item) => String(item.id) === String(savedVideoId));
+                if (!recording) {
+                    navigate('/saved-videos', { replace: true });
+                    return;
+                }
+                applySavedRecording(recording);
+            })
+            .catch(() => navigate('/saved-videos', { replace: true }))
+            .finally(() => setSavedRecordingLoading(false));
+    }, [isSavedRecordingView, navigate, routeSavedVideo, savedVideoId, user]);
+
+    useEffect(() => {
+        if (!user || isSavedRecordingView) return;
+
+        setRecordingsOverviewLoading(true);
+        axios.get(`${ApiUrl.apiURL}/saved-videos`, { withCredentials: true })
+            .then(({ data }) => {
+                const recordings = Array.isArray(data) ? data : [];
+                setRecordingsOverview({ items: recordings.slice(0, 3), count: recordings.length });
+            })
+            .catch(() => setRecordingsOverview({ items: [], count: 0 }))
+            .finally(() => setRecordingsOverviewLoading(false));
+    }, [isSavedRecordingView, user]);
 
     // ─── Inactivity auto-logout (2 hours) ────────────────────────────────────────
     const INACTIVE_LIMIT_MS = 2 * 60 * 60 * 1000; // 2 hours
@@ -144,7 +269,7 @@ function Home() {
             axios.post(`${ApiUrl.apiURL}/logout`).catch(() => { });
             navigate("/login");
         }, INACTIVE_LIMIT_MS);
-    }, [navigate]);
+    }, [navigate, INACTIVE_LIMIT_MS]);
 
     useEffect(() => {
         const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll", "click"];
@@ -180,13 +305,13 @@ function Home() {
 
 
     const items_nav = [
-        { id: 1, name: "Summary", icon: <MdOutlineFormatLineSpacing />, desc: "Transcript, translation, and a plain-language recap of the video" },
-        { id: 2, name: "Predicted Target Audience", icon: <FaStreetView />, desc: "AI-predicted audience segments, based on the video's content and any viewer feedback provided" },
-        { id: 3, name: "Effective Analysis", icon: <BsStars />, desc: "Advertisement effectiveness and audio appeal, backed by signal metrics" },
-        { id: 4, name: "Assessment", icon: <MdOutlineAssessment />, desc: "Overall strengths, weaknesses, and emotional tone at a glance" },
-        { id: 5, name: "Audience Emotion", icon: <RiEmotionFill />, desc: "Predicted emotional response distribution across listeners" },
-        { id: 6, name: "Suggestions", icon: <BsLightbulbFill />, desc: "Consolidated findings and recommendations across every dimension" },
-        { id: 7, name: "Analytics", icon: <TbActivityHeartbeat />, desc: "Raw acoustic analysis, emotion scoring, and speech clarity breakdown" },
+        { id: 1, name: "Summary", icon: <FiAlignLeft />, desc: "Transcript, translation, and a plain-language recap of the video" },
+        { id: 2, name: "Predicted Target Audience", icon: <FiUsers />, desc: "AI-predicted audience segments, based on the video's content and any viewer feedback provided" },
+        { id: 3, name: "Effective Analysis", icon: <FiActivity />, desc: "Advertisement effectiveness and audio appeal, backed by signal metrics" },
+        { id: 4, name: "Assessment", icon: <FiClipboard />, desc: "Overall strengths, weaknesses, and emotional tone at a glance" },
+        { id: 5, name: "Audience Emotion", icon: <FiHeart />, desc: "Predicted emotional response distribution across listeners" },
+        { id: 6, name: "Suggestions", icon: <FiMessageSquare />, desc: "Consolidated findings and recommendations across every dimension" },
+        { id: 7, name: "Analytics", icon: <FiBarChart2 />, desc: "Raw acoustic analysis, emotion scoring, and speech clarity breakdown" },
     ];
     const [current_nav, setCurrentNav] = useState(items_nav[0]);
 
@@ -346,7 +471,6 @@ function Home() {
         } catch { return defaultValue; }
     };
 
-    // ─── FIX: withCredentials already set globally via axios.defaults ─────────
     const handleSaveVideo = async () => {
         if (!analysisResult || !uploadedVideoPath) return;
         setIsSaving(true);
@@ -388,14 +512,64 @@ function Home() {
         }
     };
 
+    const handleSavedShare = async () => {
+        if (!savedRecording) return;
+        const shareData = {
+            title: formatSavedVideoName(savedRecording.video_path),
+            text: `KATHA analysis for ${formatSavedVideoName(savedRecording.video_path)}`,
+            url: window.location.href,
+        };
+
+        try {
+            if (navigator.share) await navigator.share(shareData);
+            else {
+                await navigator.clipboard.writeText(window.location.href);
+                Swal.fire({ icon: 'success', title: 'Link copied', timer: 1400, showConfirmButton: false });
+            }
+        } catch (err) {
+            if (err?.name !== 'AbortError') {
+                Swal.fire({ icon: 'error', title: 'Unable to share', confirmButtonColor: '#2c6edb' });
+            }
+        }
+    };
+
+    const handleSavedDelete = async () => {
+        if (!savedRecording) return;
+        const result = await Swal.fire({
+            title: 'Delete this recording?',
+            text: 'This action cannot be undone.',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#2c6edb',
+            cancelButtonColor: '#6b7280',
+            confirmButtonText: 'Delete',
+        });
+        if (!result.isConfirmed) return;
+
+        try {
+            await axios.delete(`${ApiUrl.apiURL}/saved-videos/${savedRecording.id}`, { withCredentials: true });
+            navigate('/saved-videos', { replace: true });
+        } catch {
+            Swal.fire({ icon: 'error', title: 'Failed to delete', confirmButtonColor: '#2c6edb' });
+        }
+    };
+
     // ─── Show loading spinner while auth state resolves ───────────────────────
-    if (loading) {
+    if (loading || savedRecordingLoading) {
         return (
             <LoadingScreen>
                 <LoadingSpinner />
             </LoadingScreen>
         );
     }
+
+    const savedExtra = (() => {
+        try {
+            return typeof savedRecording?.extra_results === 'string'
+                ? JSON.parse(savedRecording.extra_results)
+                : savedRecording?.extra_results;
+        } catch { return null; }
+    })();
 
     return (
         <PageWrapper>
@@ -411,22 +585,58 @@ function Home() {
 
             <MainContent $isRightbarCollapsed={isRightbarCollapsed}>
                 <ContentWrapper>
+                    {isSavedRecordingView && savedRecording ? (
+                        <SavedDetailHeader>
+                            <BackLink to="/saved-videos">
+                                <FiArrowLeft size={16} />
+                                My Recordings
+                            </BackLink>
+                            <SavedIdentityRow>
+                                <SavedFileIcon><FiFilm size={21} /></SavedFileIcon>
+                                <SavedIdentity>
+                                    <SavedTitle>{formatSavedVideoName(savedRecording.video_path)}</SavedTitle>
+                                    <SavedMeta>
+                                        <span>{formatSavedDate(savedRecording.created_at)}</span>
+                                        <span>·</span>
+                                        <span>{formatSavedBytes(savedRecording.file_size)}</span>
+                                        {savedExtra?.tone && (
+                                            <SavedTone>{savedExtra.tone}</SavedTone>
+                                        )}
+                                    </SavedMeta>
+                                </SavedIdentity>
+                            </SavedIdentityRow>
+                            <SavedActions>
+                                <SavedPlayButton type="button" onClick={() => videoPlayerRef.current?.play()}>
+                                    <FiPlay size={15} /> Play
+                                </SavedPlayButton>
+                                <SavedTextAction
+                                    as="a"
+                                    href={previewURL}
+                                    download={formatSavedVideoName(savedRecording.video_path)}
+                                >
+                                    <FiDownload size={16} /> Export
+                                </SavedTextAction>
+                                <SavedTextAction type="button" onClick={handleSavedShare}>
+                                    <FiShare2 size={16} /> Share
+                                </SavedTextAction>
+                                <SavedTextAction type="button" onClick={handleSavedDelete}>
+                                    <FiTrash2 size={16} /> Delete
+                                </SavedTextAction>
+                            </SavedActions>
+                        </SavedDetailHeader>
+                    ) : (
+                    <>
                     <HeroSection>
                         <HeroTextCol>
-                            <HeroEyebrow>{getGreeting()}{userFirstName ? `, ${userFirstName}` : ''} <span></span></HeroEyebrow>
-                            <HeroTitleRow>
-                                <HeroIconBadge>
-                                    <MdOutlineAssessment size={19} />
-                                </HeroIconBadge>
-                                <HeroGreeting>Video Analyzer</HeroGreeting>
-                            </HeroTitleRow>
+                            <HeroEyebrow>{getGreeting()}{userFirstName ? `, ${userFirstName}` : ''}</HeroEyebrow>
+                            <HeroGreeting>Video Analyzer</HeroGreeting>
                             <HeroSubtitle>
                                 Upload a video to generate AI-powered insights on content, delivery, and predicted target audience.
                             </HeroSubtitle>
                         </HeroTextCol>
                         {formattedDate && (
                             <HeroDateChip>
-                                <GoTag size={11} />
+                                <FiCalendar size={14} />
                                 {formattedDate}
                             </HeroDateChip>
                         )}
@@ -434,8 +644,8 @@ function Home() {
 
                     <FeatureCardsRow>
                         <FeatureCard>
-                            <FeatureIconWrap $tone="info">
-                                <MdOutlineFormatLineSpacing size={17} />
+                            <FeatureIconWrap>
+                                <FiFileText size={20} />
                             </FeatureIconWrap>
                             <FeatureBody>
                                 <FeatureTitle>Transcript &amp; Translation</FeatureTitle>
@@ -443,8 +653,8 @@ function Home() {
                             </FeatureBody>
                         </FeatureCard>
                         <FeatureCard>
-                            <FeatureIconWrap $tone="warning">
-                                <RiEmotionFill size={17} />
+                            <FeatureIconWrap>
+                                <FiSmile size={20} />
                             </FeatureIconWrap>
                             <FeatureBody>
                                 <FeatureTitle>Emotion &amp; Tone Detection</FeatureTitle>
@@ -452,8 +662,8 @@ function Home() {
                             </FeatureBody>
                         </FeatureCard>
                         <FeatureCard>
-                            <FeatureIconWrap $tone="success">
-                                <FaWaveSquare size={16} />
+                            <FeatureIconWrap>
+                                <FiMic size={20} />
                             </FeatureIconWrap>
                             <FeatureBody>
                                 <FeatureTitle>Speech Clarity Scoring</FeatureTitle>
@@ -472,7 +682,65 @@ function Home() {
                         </AnnouncementBanner>
                     )}
 
-                    {!viewVideo ? (
+                    <RecordingOverview>
+                        <RecordingOverviewHeader>
+                            <div>
+                                <RecordingOverviewTitle>Recent recordings</RecordingOverviewTitle>
+                                <RecordingOverviewSubtitle>
+                                    {recordingsOverview.count === 1
+                                        ? '1 saved analysis'
+                                        : `${recordingsOverview.count} saved analyses`}
+                                </RecordingOverviewSubtitle>
+                            </div>
+                            <RecordingOverviewLink to="/saved-videos">
+                                View all <FiArrowRight size={15} />
+                            </RecordingOverviewLink>
+                        </RecordingOverviewHeader>
+
+                        {recordingsOverviewLoading ? (
+                            <RecordingOverviewList aria-label="Loading recent recordings">
+                                {[1, 2, 3].map((item) => <RecordingOverviewSkeleton key={item} />)}
+                            </RecordingOverviewList>
+                        ) : recordingsOverview.items.length > 0 ? (
+                            <RecordingOverviewList>
+                                {recordingsOverview.items.map((recording) => {
+                                    const tone = getSavedTone(recording);
+                                    return (
+                                        <RecordingOverviewRow
+                                            key={recording.id}
+                                            to={`/saved-videos/${recording.id}`}
+                                            state={{ video: recording }}
+                                        >
+                                            <RecordingOverviewIcon><FiFilm size={18} /></RecordingOverviewIcon>
+                                            <RecordingOverviewBody>
+                                                <RecordingOverviewName>{formatSavedVideoName(recording.video_path)}</RecordingOverviewName>
+                                                <RecordingOverviewMeta>
+                                                    {formatSavedDate(recording.created_at)} · {formatSavedBytes(recording.file_size)}
+                                                    {tone && <RecordingOverviewTone>{tone}</RecordingOverviewTone>}
+                                                </RecordingOverviewMeta>
+                                                {recording.summary && (
+                                                    <RecordingOverviewSummary>{recording.summary}</RecordingOverviewSummary>
+                                                )}
+                                            </RecordingOverviewBody>
+                                            <FiChevronRight size={18} aria-hidden="true" />
+                                        </RecordingOverviewRow>
+                                    );
+                                })}
+                            </RecordingOverviewList>
+                        ) : (
+                            <RecordingOverviewEmpty>
+                                Saved analyses will appear here after you analyze and save a video.
+                            </RecordingOverviewEmpty>
+                        )}
+                    </RecordingOverview>
+                    </>
+                    )}
+
+                    {isSavedRecordingView ? (
+                        <SavedVideoSection>
+                            <SavedVideoPlayer ref={videoPlayerRef} src={previewURL} controls />
+                        </SavedVideoSection>
+                    ) : !viewVideo ? (
                         <VideoUploadSection>
                             <UploadBox>
                                 <input
@@ -521,7 +789,7 @@ function Home() {
                     ) : (
                         <VideoSection>
                             <VideoPlayerWrap>
-                                <VideoPlayer src={previewURL} controls />
+                                <VideoPlayer ref={videoPlayerRef} src={previewURL} controls />
                             </VideoPlayerWrap>
                             <VideoInfoCard>
                                 <VideoFileNameRow>
@@ -613,6 +881,7 @@ function Home() {
                                         onChange={(e) => setSearchQuery(e.target.value)}
                                     />
                                 </SearchBar>
+                                {!isSavedRecordingView && (
                                 <ActionButtons>
                                     <ActionButton title="Tag"><GoTag size={18} /></ActionButton>
                                     <ActionButton title="Share"><FaShareAlt size={16} /></ActionButton>
@@ -630,6 +899,7 @@ function Home() {
                                         Reset
                                     </ResetButton>
                                 </ActionButtons>
+                                )}
                             </ResultsHeader>
 
                             {(() => {
@@ -641,28 +911,28 @@ function Home() {
 
                                 const chips = [
                                     detectedLanguage && {
-                                        icon: <GoTag size={14} />,
+                                        icon: <FiGlobe size={18} />,
                                         label: 'Language',
                                         value: detectedLanguage,
                                     },
                                     clarityScore != null && {
-                                        icon: <MdOutlineAssessment size={14} />,
+                                        icon: <FiCheckCircle size={18} />,
                                         label: 'Clarity Score',
                                         value: `${clarityScore}/100`,
                                         $tone: clarityScore >= 80 ? 'good' : clarityScore >= 60 ? 'mid' : 'low',
                                     },
                                     dominantEmotion && {
-                                        icon: <RiEmotionFill size={14} />,
+                                        icon: <FiSmile size={18} />,
                                         label: 'Dominant Emotion',
                                         value: dominantEmotion.charAt(0).toUpperCase() + dominantEmotion.slice(1),
                                     },
                                     inferredTone && {
-                                        icon: <FaWaveSquare size={14} />,
+                                        icon: <FiTrendingUp size={18} />,
                                         label: 'Inferred Tone',
                                         value: inferredTone.charAt(0).toUpperCase() + inferredTone.slice(1),
                                     },
                                     speakingRate != null && {
-                                        icon: <TbActivityHeartbeat size={14} />,
+                                        icon: <FiClock size={18} />,
                                         label: 'Speaking Rate',
                                         value: `${speakingRate} WPM`,
                                     },
@@ -1449,14 +1719,14 @@ const LoadingScreen = styled.div`
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #f9fafb;
+    background: #f6f9fc;
 `;
 
 const LoadingSpinner = styled.div`
     width: 36px;
     height: 36px;
-    border: 3px solid #e5e7eb;
-    border-top-color: #0284c7;
+    border: 3px solid #e4e9f0;
+    border-top-color: #2c6edb;
     border-radius: 50%;
     animation: ${spinAnim} 0.8s linear infinite;
 `;
@@ -1464,7 +1734,7 @@ const LoadingSpinner = styled.div`
 const PageWrapper = styled.div`
     width: 100%;
     min-height: 100vh;
-    background: #f9fafb;
+    background: #ffffff;
     display: flex;
     flex-direction: column;
 `;
@@ -1615,12 +1885,12 @@ const MainContent = styled.main`
     margin-top: 80px;
     margin-left: 230px;
     margin-right: ${props => props.$isRightbarCollapsed ? '60px' : '400px'};
-    padding: 24px;
+    padding: 32px 28px 48px;
     min-height: calc(100vh - 80px);
     transition: margin-right 0.3s ease;
 
     @media (max-width: 1280px) { margin-right: 0; }
-    @media (max-width: 768px)  { margin-left: 0; padding: 16px; }
+    @media (max-width: 768px)  { margin-left: 0; padding: 20px 16px 40px; }
 `;
 
 const MobileMenuButton = styled.button`
@@ -1633,15 +1903,15 @@ const MobileMenuButton = styled.button`
     height: 44px;
     border-radius: 12px;
     background: white;
-    border: 1px solid #e5e7eb;
-    color: #1f2937;
+    border: 1px solid #e4e9f0;
+    color: #14181f;
     align-items: center;
     justify-content: center;
     cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    box-shadow: none;
     transition: all 0.2s;
 
-    &:hover { background: #f9fafb; }
+    &:hover { background: #f6f9fc; }
     @media (max-width: 768px) { display: flex; }
 `;
 
@@ -1650,92 +1920,342 @@ const ContentWrapper = styled.div`
     margin: 0 auto;
 `;
 
+const SavedDetailHeader = styled.header`
+    padding: 2px 0 24px;
+    margin-bottom: 24px;
+    border-bottom: 1px solid #e4e9f0;
+`;
+
+const BackLink = styled(Link)`
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    margin-bottom: 20px;
+    color: #6b7280;
+    font-size: 0.875rem;
+    font-weight: 500;
+
+    &:hover { color: #14181f; }
+`;
+
+const SavedIdentityRow = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 14px;
+`;
+
+const SavedFileIcon = styled.span`
+    width: 42px;
+    height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: 10px;
+    color: #2c6edb;
+    background: #eaf2fb;
+`;
+
+const SavedIdentity = styled.div`
+    min-width: 0;
+`;
+
+const SavedTitle = styled.h1`
+    margin: 0 0 5px;
+    color: #14181f;
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+`;
+
+const SavedMeta = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+    color: #6b7280;
+    font-size: 0.8rem;
+`;
+
+const SavedTone = styled.span`
+    padding: 3px 9px;
+    margin-left: 2px;
+    border: 1px solid #e4e9f0;
+    border-radius: 999px;
+    color: #14181f;
+    text-transform: capitalize;
+`;
+
+const SavedActions = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 20px;
+`;
+
+const SavedPlayButton = styled.button`
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 15px;
+    border: 1px solid #2c6edb;
+    border-radius: 8px;
+    background: #2c6edb;
+    color: #ffffff;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+
+    &:hover { background: #245ebc; border-color: #245ebc; }
+`;
+
+const SavedTextAction = styled.button`
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 9px 10px;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: #6b7280;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    cursor: pointer;
+
+    &:hover { color: #14181f; background: #f6f9fc; }
+`;
+
+const SavedVideoSection = styled.section`
+    margin-bottom: 24px;
+    border: 1px solid #e4e9f0;
+    background: #14181f;
+    line-height: 0;
+`;
+
+const SavedVideoPlayer = styled.video`
+    display: block;
+    width: 100%;
+    max-height: 520px;
+    object-fit: contain;
+    background: #14181f;
+`;
+
+const RecordingOverview = styled.section`
+    margin: 0 0 24px;
+    border-top: 1px solid #e4e9f0;
+    border-bottom: 1px solid #e4e9f0;
+`;
+
+const RecordingOverviewHeader = styled.div`
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 18px 0;
+`;
+
+const RecordingOverviewTitle = styled.h2`
+    margin: 0 0 3px;
+    color: #14181f;
+    font-size: 1rem;
+    font-weight: 600;
+`;
+
+const RecordingOverviewSubtitle = styled.p`
+    margin: 0;
+    color: #6b7280;
+    font-size: 0.78rem;
+`;
+
+const RecordingOverviewLink = styled(Link)`
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    color: #2c6edb;
+    font-size: 0.8125rem;
+    font-weight: 500;
+
+    &:hover { color: #14181f; }
+`;
+
+const RecordingOverviewList = styled.div`
+    border-top: 1px solid #e4e9f0;
+`;
+
+const RecordingOverviewRow = styled(Link)`
+    display: flex;
+    align-items: flex-start;
+    gap: 13px;
+    padding: 15px 0;
+    color: #6b7280;
+    border-bottom: 1px solid #e4e9f0;
+
+    &:last-child { border-bottom: none; }
+    &:hover { color: #2c6edb; }
+`;
+
+const RecordingOverviewIcon = styled.span`
+    width: 34px;
+    height: 34px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: 8px;
+    background: #eaf2fb;
+    color: #2c6edb;
+`;
+
+const RecordingOverviewBody = styled.div`
+    flex: 1;
+    min-width: 0;
+`;
+
+const RecordingOverviewName = styled.p`
+    margin: 0 0 3px;
+    color: #14181f;
+    font-size: 0.875rem;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+`;
+
+const RecordingOverviewMeta = styled.div`
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+    color: #6b7280;
+    font-size: 0.75rem;
+`;
+
+const RecordingOverviewTone = styled.span`
+    padding: 2px 7px;
+    border: 1px solid #e4e9f0;
+    border-radius: 999px;
+    color: #14181f;
+    text-transform: capitalize;
+`;
+
+const RecordingOverviewSummary = styled.p`
+    display: -webkit-box;
+    margin: 7px 0 0;
+    max-width: 760px;
+    overflow: hidden;
+    color: #6b7280;
+    font-size: 0.78rem;
+    line-height: 1.55;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+`;
+
+const RecordingOverviewSkeleton = styled.div`
+    height: 74px;
+    background: #f6f9fc;
+    border-bottom: 1px solid #e4e9f0;
+
+    &:last-child { border-bottom: none; }
+`;
+
+const RecordingOverviewEmpty = styled.p`
+    margin: 0;
+    padding: 18px 0;
+    color: #6b7280;
+    border-top: 1px solid #e4e9f0;
+    font-size: 0.8125rem;
+`;
+
 const HeroSection = styled.div`
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
     gap: 20px;
-    padding: 22px 24px;
-    margin-bottom: 16px;
-    background: #026ba1;
-    border-radius: 16px;
-    overflow: hidden;
+    padding: 4px 0 28px;
+    margin-bottom: 0;
+    background: #ffffff;
+    border-bottom: 1px solid #e4e9f0;
     position: relative;
 
-    @media (max-width: 640px) { padding: 18px 20px; }
+    @media (max-width: 640px) { padding: 0 0 24px; }
 `;
 
 const HeroTextCol = styled.div`
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 7px;
     position: relative;
     z-index: 1;
 `;
 
 const HeroEyebrow = styled.span`
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: #bae6fd;
-
-    span { margin-left: 2px; }
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #6b7280;
 `;
 
 const HeroGreeting = styled.h1`
-    font-size: 1.375rem;
-    font-weight: 650;
-    color: white;
+    font-size: 1.75rem;
+    font-weight: 600;
+    color: #14181f;
     margin: 0;
     letter-spacing: -0.01em;
 
-    @media (max-width: 640px) { font-size: 1.1875rem; }
+    @media (max-width: 640px) { font-size: 1.5rem; }
 `;
 
 const HeroSubtitle = styled.p`
     font-size: 0.875rem;
     font-weight: 400;
-    color: #bae6fd;
+    color: #6b7280;
     margin: 2px 0 0 0;
-    max-width: 520px;
-    line-height: 1.55;
+    max-width: 640px;
+    line-height: 1.6;
 `;
 
 const FeatureCardsRow = styled.div`
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 12px;
-    margin-bottom: 20px;
-`;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-bottom: 24px;
+    border-bottom: 1px solid #e4e9f0;
 
-const featureTones = {
-    info:    { fg: '#0284c7', bg: '#eff6ff' },
-    warning: { fg: '#b45309', bg: '#fffbeb' },
-    success: { fg: '#166534', bg: '#f0fdf4' },
-};
+    @media (max-width: 760px) {
+        grid-template-columns: 1fr;
+    }
+`;
 
 const FeatureCard = styled.div`
     display: flex;
     align-items: flex-start;
     gap: 12px;
-    padding: 14px 16px;
-    background: white;
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    transition: border-color 0.15s, transform 0.15s;
+    padding: 24px 24px 24px 0;
+    background: #ffffff;
+    border-right: 1px solid #e4e9f0;
 
-    &:hover { border-color: #cbd5e1; transform: translateY(-1px); }
+    &:not(:first-child) { padding-left: 24px; }
+    &:last-child { border-right: none; padding-right: 0; }
+
+    @media (max-width: 760px) {
+        padding: 18px 0;
+        border-right: none;
+        border-bottom: 1px solid #e4e9f0;
+
+        &:not(:first-child) { padding-left: 0; }
+        &:last-child { border-bottom: none; }
+    }
 `;
 
 const FeatureIconWrap = styled.div`
     display: flex;
     align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    border-radius: 9px;
+    justify-content: flex-start;
+    width: 24px;
+    height: 24px;
     flex-shrink: 0;
-    color: ${p => (featureTones[p.$tone] || featureTones.info).fg};
-    background: ${p => (featureTones[p.$tone] || featureTones.info).bg};
+    color: #2c6edb;
 `;
 
 const FeatureBody = styled.div`
@@ -1747,33 +2267,14 @@ const FeatureBody = styled.div`
 
 const FeatureTitle = styled.span`
     font-size: 0.875rem;
-    font-weight: 650;
-    color: #1e293b;
+    font-weight: 600;
+    color: #14181f;
 `;
 
 const FeatureDesc = styled.span`
     font-size: 0.8125rem;
-    color: #64748b;
+    color: #6b7280;
     line-height: 1.5;
-`;
-
-const HeroTitleRow = styled.div`
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 2px 0;
-`;
-
-const HeroIconBadge = styled.div`
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 34px;
-    height: 34px;
-    border-radius: 10px;
-    background: rgba(255,255,255,0.14);
-    color: white;
-    flex-shrink: 0;
 `;
 
 const HeroDateChip = styled.div`
@@ -1782,17 +2283,19 @@ const HeroDateChip = styled.div`
     gap: 6px;
     flex-shrink: 0;
     font-size: 0.8125rem;
-    font-weight: 550;
-    color: #e0f2fe;
-    padding: 8px 14px;
-    background: rgba(255,255,255,0.1);
-    border: 1px solid rgba(255,255,255,0.18);
-    border-radius: 8px;
+    font-weight: 500;
+    color: #6b7280;
+    padding: 7px 11px;
+    background: #ffffff;
+    border: 1px solid #e4e9f0;
+    border-radius: 999px;
     white-space: nowrap;
     position: relative;
     z-index: 1;
 
-    @media (max-width: 560px) { display: none; }
+    svg { color: #2c6edb; }
+
+    @media (max-width: 560px) { padding: 7px; span { display: none; } }
 `;
 
 const VideoUploadSection = styled.section`
@@ -1959,10 +2462,10 @@ const VideoInfoCard = styled.div`
     gap: 16px;
     padding: 16px 20px;
     background: white;
-    border: 1px solid #e5e7eb;
+    border: 1px solid #e4e9f0;
     border-top: none;
     border-radius: 0 0 16px 16px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    box-shadow: none;
 
     @media (max-width: 640px) {
         flex-direction: column;
@@ -2009,7 +2512,7 @@ const ButtonGroup = styled.div`
 
 const PrimaryButton = styled.button`
     padding: 10px 22px;
-    background: #0284c7;
+    background: #2c6edb;
     color: white;
     border: none;
     border-radius: 10px;
@@ -2017,10 +2520,10 @@ const PrimaryButton = styled.button`
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
-    box-shadow: 0 1px 4px rgba(2,132,199,0.25);
+    box-shadow: none;
     white-space: nowrap;
 
-    &:hover:not(:disabled) { background: #075985; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(2,132,199,0.3); }
+    &:hover:not(:disabled) { background: #245ebc; }
     &:disabled { opacity: 0.55; cursor: not-allowed; transform: none; }
 
     @media (max-width: 640px) { width: 100%; padding: 12px 22px; }
@@ -2063,10 +2566,10 @@ const ProgressPanel = styled.div`
     position: relative;
     margin: 20px 0 0 0;
     background: white;
-    border: 1px solid #e5e7eb;
+    border: 1px solid #e4e9f0;
     border-radius: 14px;
     overflow: hidden;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    box-shadow: none;
 `;
 
 const indeterminateSlide = keyframes`
@@ -2210,9 +2713,9 @@ const ActionButtons = styled.div`
     gap: 4px;
     padding: 4px;
     background: white;
-    border: 1px solid #e5e7eb;
+    border: 1px solid #e4e9f0;
     border-radius: 12px;
-    box-shadow: 0 1px 2px rgba(15,23,42,0.03);
+    box-shadow: none;
     @media (max-width: 640px) { width: 100%; justify-content: space-between; }
 `;
 
@@ -2274,10 +2777,9 @@ const ResetButton = styled.button`
 
 const TabsContainer = styled.div`
     margin-bottom: 20px;
-    background: white;
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    padding: 6px;
+    background: transparent;
+    border-bottom: 1px solid #e4e9f0;
+    padding: 0;
     overflow-x: auto;
 
     &::-webkit-scrollbar { height: 4px; }
@@ -2287,7 +2789,7 @@ const TabsContainer = styled.div`
 
 const TabsScrollWrapper = styled.div`
     display: flex;
-    gap: 4px;
+    gap: 24px;
     min-width: max-content;
 `;
 
@@ -2295,19 +2797,20 @@ const Tab = styled.button`
     display: flex;
     align-items: center;
     gap: 7px;
-    padding: 9px 15px;
-    background: ${props => props.$isActive ? '#0284c7' : 'transparent'};
-    color: ${props => props.$isActive ? 'white' : '#64748b'};
+    padding: 11px 0 12px;
+    background: transparent;
+    color: ${props => props.$isActive ? '#14181f' : '#6b7280'};
     border: none;
-    border-radius: 8px;
+    border-bottom: 2px solid ${props => props.$isActive ? '#2c6edb' : 'transparent'};
+    border-radius: 0;
     font-size: 0.8125rem;
     font-weight: 550;
     cursor: pointer;
     transition: all 0.15s;
     white-space: nowrap;
 
-    &:hover { background: ${props => props.$isActive ? '#075985' : '#f1f5f9'}; color: ${props => props.$isActive ? 'white' : '#1e293b'}; }
-    @media (max-width: 768px) { padding: 8px 12px; }
+    &:hover { color: #14181f; }
+    @media (max-width: 768px) { padding: 10px 0 11px; }
 `;
 
 const TabIcon = styled.span`
@@ -2322,42 +2825,51 @@ const TabText = styled.span`
 `;
 
 const QuickStatsRow = styled.div`
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 10px;
+    display: flex;
+    align-items: stretch;
     margin-bottom: 20px;
-`;
+    padding: 16px 0;
+    background: #f6f9fc;
+    border-top: 1px solid #e4e9f0;
+    border-bottom: 1px solid #e4e9f0;
+    overflow-x: auto;
 
-const toneColors = {
-    good: { fg: '#166534', bg: '#f0fdf4', border: '#dcfce7' },
-    mid:  { fg: '#92400e', bg: '#fffbeb', border: '#fde68a' },
-    low:  { fg: '#991b1b', bg: '#fef2f2', border: '#fecaca' },
-    default: { fg: '#0284c7', bg: '#f0f9ff', border: '#e0f2fe' },
-};
+    @media (max-width: 760px) {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        padding: 0 14px;
+    }
+`;
 
 const QuickStatChip = styled.div`
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 12px 14px;
-    background: white;
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    transition: border-color 0.15s;
+    flex: 1 0 150px;
+    padding: 0 18px;
+    background: transparent;
+    border-right: 1px solid #e4e9f0;
 
-    &:hover { border-color: #cbd5e1; }
+    &:last-child { border-right: none; }
+
+    @media (max-width: 760px) {
+        min-width: 0;
+        padding: 16px 8px;
+        border-right: none;
+        border-bottom: 1px solid #e4e9f0;
+
+        &:nth-last-child(-n + 2) { border-bottom: none; }
+    }
 `;
 
 const QuickStatIcon = styled.span`
     display: flex;
     align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 30px;
-    border-radius: 8px;
+    justify-content: flex-start;
+    width: 20px;
+    height: 20px;
     flex-shrink: 0;
-    color: ${p => (toneColors[p.$tone] || toneColors.default).fg};
-    background: ${p => (toneColors[p.$tone] || toneColors.default).bg};
+    color: #2c6edb;
 `;
 
 const QuickStatText = styled.div`
@@ -2368,17 +2880,17 @@ const QuickStatText = styled.div`
 `;
 
 const QuickStatLabel = styled.span`
-    font-size: 0.6875rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: #94a3b8;
+    font-size: 0.75rem;
+    font-weight: 500;
+    letter-spacing: normal;
+    text-transform: none;
+    color: #6b7280;
 `;
 
 const QuickStatValue = styled.span`
-    font-size: 0.875rem;
-    font-weight: 650;
-    color: #0f172a;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: #14181f;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -2387,18 +2899,10 @@ const QuickStatValue = styled.span`
 const ContentCard = styled.div`
     position: relative;
     background: white;
-    border: 1px solid #e5e7eb;
+    border: 1px solid #e4e9f0;
     border-radius: 14px;
     padding: 20px;
     overflow: hidden;
-
-    &::before {
-        content: '';
-        position: absolute;
-        top: 0; left: 0; right: 0;
-        height: 3px;
-        background: #0284c7;
-    }
 
     @media (min-width: 768px) { padding: 32px; }
 `;

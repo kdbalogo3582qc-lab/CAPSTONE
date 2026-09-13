@@ -6,16 +6,10 @@ import Leftbar from "./Leftbar";
 import ApiUrl from "../config/LocalConfigApi";
 import { useAuth } from "./Login";
 import { useNavigate } from "react-router-dom";
-import { MdOutlineFormatLineSpacing, MdOutlineAssessment } from "react-icons/md";
-import { FaStreetView } from "react-icons/fa6";
-import { BsStars, BsLightbulbFill } from "react-icons/bs";
-import { RiEmotionFill } from "react-icons/ri";
-import { TbActivityHeartbeat } from "react-icons/tb";
-import { FaWaveSquare } from "react-icons/fa";
-import { GiMicrophone } from "react-icons/gi";
 import {
-    FiTrash2, FiChevronDown, FiChevronUp, FiVideo,
-    FiHardDrive, FiPlay, FiX, FiClock, FiFilm
+    FiActivity, FiAlignLeft, FiBarChart2,
+    FiClipboard, FiEye, FiFilm, FiHeart, FiMessageSquare, FiMic,
+    FiMoreHorizontal, FiPlay, FiTrash2, FiUsers, FiVideo, FiX
 } from "react-icons/fi";
 import { HiMenuAlt3 } from "react-icons/hi";
 import { CiVideoOn } from "react-icons/ci";
@@ -25,13 +19,13 @@ import Swal from "sweetalert2";
 const MAX_STORAGE = 5 * 1024 * 1024 * 1024;
 
 const TAB_KEYS = [
-    { id: 1, name: "Summary",          icon: <MdOutlineFormatLineSpacing />, path: "summary.summary.content" },
-    { id: 2, name: "Impact",           icon: <FaStreetView />,               path: "summary.impact.content" },
-    { id: 3, name: "Effectiveness",    icon: <BsStars />,                    path: "summary.advertisement_effectiveness.content" },
-    { id: 4, name: "Assessment",       icon: <MdOutlineAssessment />,        path: "summary.overall_assessment.content" },
-    { id: 5, name: "Audience Emotion", icon: <RiEmotionFill />,              path: "summary.emotional_tone.content" },
-    { id: 6, name: "Suggestions",      icon: <BsLightbulbFill />,            path: null },
-    { id: 7, name: "Analytics",        icon: <TbActivityHeartbeat />,        path: null },
+    { id: 1, name: "Summary",          icon: <FiAlignLeft />,      path: "summary.summary.content" },
+    { id: 2, name: "Impact",           icon: <FiUsers />,          path: "summary.impact.content" },
+    { id: 3, name: "Effectiveness",    icon: <FiActivity />,       path: "summary.advertisement_effectiveness.content" },
+    { id: 4, name: "Assessment",       icon: <FiClipboard />,      path: "summary.overall_assessment.content" },
+    { id: 5, name: "Audience Emotion", icon: <FiHeart />,          path: "summary.emotional_tone.content" },
+    { id: 6, name: "Suggestions",      icon: <FiMessageSquare />,  path: null },
+    { id: 7, name: "Analytics",        icon: <FiBarChart2 />,      path: null },
 ];
 
 const getDeep = (obj, path) => {
@@ -71,13 +65,15 @@ export default function SavedVideos() {
 
     const [videos, setVideos]             = useState([]);
     const [fetching, setFetching]         = useState(true);
-    const [expandedId, setExpandedId]     = useState(null);
+    const [expandedId]                    = useState(null);
     const [activeTab, setActiveTab]       = useState({});
     const [storage, setStorage]           = useState({ used: 0, max: MAX_STORAGE, count: 0 });
     const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
     const [playingVideo, setPlayingVideo] = useState(null);
     const [searchQuery, setSearchQuery]   = useState("");
     const [sortBy, setSortBy]             = useState("newest");
+    const [openMenuId, setOpenMenuId]     = useState(null);
+    const [expandedSummaries, setExpandedSummaries] = useState({});
 
     useEffect(() => { if (!loading && !user) navigate("/"); }, [user, loading, navigate]);
 
@@ -102,7 +98,7 @@ export default function SavedVideos() {
             text: "This action cannot be undone.",
             icon: "warning",
             showCancelButton: true,
-            confirmButtonColor: "#ef4444",
+            confirmButtonColor: "#2c6edb",
             cancelButtonColor: "#6b7280",
             confirmButtonText: "Delete",
         });
@@ -120,13 +116,17 @@ export default function SavedVideos() {
             if (playingVideo?.id === id) setPlayingVideo(null);
             Swal.fire({ icon: "success", title: "Deleted", timer: 1500, showConfirmButton: false });
         } catch {
-            Swal.fire({ icon: "error", title: "Failed to delete", confirmButtonColor: "#ef4444" });
+            Swal.fire({ icon: "error", title: "Failed to delete", confirmButtonColor: "#2c6edb" });
         }
     };
 
-    const toggleExpand = (id) => {
-        setExpandedId((prev) => (prev === id ? null : id));
-        setActiveTab((prev) => ({ ...prev, [id]: prev[id] ?? 1 }));
+    const playVideo = (video, videoUrl) => {
+        setPlayingVideo({ id: video.id, url: videoUrl, name: formatVideoName(video.video_path) });
+        setOpenMenuId(null);
+    };
+
+    const openDetails = (video) => {
+        navigate(`/saved-videos/${video.id}`, { state: { video } });
     };
 
     const getTabContent = (analysis, tabId) => {
@@ -155,9 +155,6 @@ export default function SavedVideos() {
         if (typeof val === "object") return JSON.stringify(val, null, 2);
         return val;
     };
-
-    const usedPct = Math.min(100, (storage.used / MAX_STORAGE) * 100);
-    const storageColor = usedPct > 90 ? "#ef4444" : usedPct > 70 ? "#f97316" : "#0284c7";
 
     const filteredVideos = useMemo(() => {
         const query = searchQuery.trim().toLowerCase();
@@ -206,63 +203,33 @@ export default function SavedVideos() {
             )}
 
             <MainContent>
-                {/* ── Top Row ── */}
                 <TopRow>
                     <HeaderBlock>
                         <PageTitle>My Recordings</PageTitle>
                         <PageSubtitle>
-                            {filteredVideos.length} of {storage.count} {storage.count === 1 ? "recording" : "recordings"} · click a card to view details
+                            {storage.count} {storage.count === 1 ? "recording" : "recordings"}
                         </PageSubtitle>
                     </HeaderBlock>
+                    <ControlsRow>
+                        <SearchWrap>
+                            <CiSearch size={18} />
+                            <SearchInput
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                placeholder="Search recordings..."
+                            />
+                        </SearchWrap>
 
-                    {/* ── Storage Widget ── */}
-                    <StorageWidget>
-                        <StorageTop>
-                            <StorageIconWrap>
-                                <FiHardDrive size={18} />
-                            </StorageIconWrap>
-                            <StorageInfo>
-                                <StorageLabel>Storage</StorageLabel>
-                                <StorageNumbers $color={storageColor}>
-                                    {formatBytes(storage.used)}
-                                    <span> / 5 GB</span>
-                                </StorageNumbers>
-                            </StorageInfo>
-                        </StorageTop>
-                        <StorageBarTrack>
-                            <StorageBarFill $pct={usedPct} $color={storageColor} />
-                        </StorageBarTrack>
-                        <StorageFooter>
-                            <span>{formatBytes(MAX_STORAGE - storage.used)} free</span>
-                            <span>{usedPct.toFixed(1)}% used</span>
-                        </StorageFooter>
-                    </StorageWidget>
+                        <SortSelect
+                            value={sortBy}
+                            onChange={(e) => setSortBy(e.target.value)}
+                        >
+                            <option value="newest">Sort: Newest</option>
+                            <option value="oldest">Sort: Oldest</option>
+                            <option value="largest">Sort: Largest size</option>
+                        </SortSelect>
+                    </ControlsRow>
                 </TopRow>
-
-                <ControlsRow>
-                    <SearchWrap>
-                        <CiSearch size={18} />
-                        <SearchInput
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="Search recordings by filename"
-                        />
-                    </SearchWrap>
-
-                    <SortSelect
-                        value={sortBy}
-                        onChange={(e) => setSortBy(e.target.value)}
-                    >
-                        <option value="newest">Sort: Newest</option>
-                        <option value="oldest">Sort: Oldest</option>
-                        <option value="largest">Sort: Largest Size</option>
-                    </SortSelect>
-
-                    <StatPill>
-                        <span>Visible</span>
-                        <strong>{filteredVideos.length}</strong>
-                    </StatPill>
-                </ControlsRow>
 
                 {/* ── Content ── */}
                 {fetching ? (
@@ -302,7 +269,7 @@ export default function SavedVideos() {
 
                             return (
                                 <VideoCard key={video.id} $isOpen={isOpen}>
-                                    <CardHeader onClick={() => toggleExpand(video.id)}>
+                                    <CardHeader onClick={() => openDetails(video)}>
                                         <ThumbIconWrap>
                                             <FiVideo size={22} />
                                         </ThumbIconWrap>
@@ -310,10 +277,9 @@ export default function SavedVideos() {
                                         <CardMeta>
                                             <CardTitle>{formatVideoName(video.video_path)}</CardTitle>
                                             <CardDateRow>
-                                                <FiClock size={11} />
                                                 {formatDate(video.created_at)}
                                                 {video.file_size > 0 && (
-                                                    <FileSizeChip>{formatBytes(video.file_size)}</FileSizeChip>
+                                                    <><MetaDot>·</MetaDot>{formatBytes(video.file_size)}</>
                                                 )}
                                             </CardDateRow>
                                         </CardMeta>
@@ -325,25 +291,61 @@ export default function SavedVideos() {
                                                     title="Play video"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        setPlayingVideo({ id: video.id, url: videoUrl, name: formatVideoName(video.video_path) });
+                                                        playVideo(video, videoUrl);
                                                     }}
                                                 >
                                                     <FiPlay size={13} />
                                                     <span>Play</span>
                                                 </PlayBtn>
                                             )}
-                                            <DeleteBtn title="Delete" onClick={(e) => handleDelete(video.id, e)}>
-                                                <FiTrash2 size={15} />
-                                            </DeleteBtn>
-                                            <ChevronWrap>
-                                                {isOpen ? <FiChevronUp size={17} /> : <FiChevronDown size={17} />}
-                                            </ChevronWrap>
+                                            <MoreMenuWrap>
+                                                <MoreButton
+                                                    type="button"
+                                                    aria-label={`More actions for ${formatVideoName(video.video_path)}`}
+                                                    aria-expanded={openMenuId === video.id}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setOpenMenuId((current) => current === video.id ? null : video.id);
+                                                    }}
+                                                >
+                                                    <FiMoreHorizontal size={18} />
+                                                </MoreButton>
+                                                {openMenuId === video.id && (
+                                                    <ActionMenu onClick={(e) => e.stopPropagation()}>
+                                                        {videoUrl && (
+                                                            <MenuAction onClick={() => playVideo(video, videoUrl)}>
+                                                                <FiPlay size={15} /> Play
+                                                            </MenuAction>
+                                                        )}
+                                                        <MenuAction onClick={() => openDetails(video)}>
+                                                            <FiEye size={15} /> View details
+                                                        </MenuAction>
+                                                        <MenuAction onClick={(e) => handleDelete(video.id, e)}>
+                                                            <FiTrash2 size={15} /> Delete
+                                                        </MenuAction>
+                                                    </ActionMenu>
+                                                )}
+                                            </MoreMenuWrap>
                                         </CardActions>
                                     </CardHeader>
 
                                     {/* Summary preview when collapsed */}
                                     {!isOpen && video.summary && (
-                                        <SummaryPreview>{video.summary}</SummaryPreview>
+                                        <SummaryArea>
+                                            <SummaryPreview $expanded={expandedSummaries[video.id]}>{video.summary}</SummaryPreview>
+                                            <SummaryToggle
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setExpandedSummaries((current) => ({
+                                                        ...current,
+                                                        [video.id]: !current[video.id],
+                                                    }));
+                                                }}
+                                            >
+                                                {expandedSummaries[video.id] ? "Show less" : "Show more"}
+                                            </SummaryToggle>
+                                        </SummaryArea>
                                     )}
 
                                     {/* ── Expanded Analysis ── */}
@@ -379,8 +381,8 @@ export default function SavedVideos() {
                                                         <AnalyticsBox>
                                                             {/* ── Emotion Detection ── */}
                                                             <AnalyticsPanelLabel>
-                                                                <GiMicrophone size={12} style={{ opacity: 0.55 }} />
-                                                                SECTION 01 — EMOTION DETECTION
+                                                                <FiMic size={12} style={{ opacity: 0.55 }} />
+                                                                Emotion detection
                                                             </AnalyticsPanelLabel>
 
                                                             {analysis.emotion_analysis ? (() => {
@@ -439,16 +441,16 @@ export default function SavedVideos() {
 
                                                             {/* ── Speech Clarity ── */}
                                                             <AnalyticsPanelLabel style={{ marginTop: 16 }}>
-                                                                <FaWaveSquare size={11} style={{ opacity: 0.55 }} />
-                                                                SECTION 02 — SPEECH CLARITY ASSESSMENT
+                                                                <FiActivity size={12} style={{ opacity: 0.55 }} />
+                                                                Speech clarity assessment
                                                             </AnalyticsPanelLabel>
 
                                                             {analysis.speech_clarity ? (() => {
                                                                 const sc = analysis.speech_clarity;
                                                                 const score = sc.overall_score ?? 0;
-                                                                const scoreColor  = score >= 80 ? '#166534' : score >= 60 ? '#92400e' : '#991b1b';
-                                                                const scoreBg     = score >= 80 ? 'rgba(22,101,52,0.08)'  : score >= 60 ? 'rgba(146,64,14,0.08)'  : 'rgba(153,27,27,0.08)';
-                                                                const scoreBorder = score >= 80 ? 'rgba(22,101,52,0.2)'   : score >= 60 ? 'rgba(146,64,14,0.2)'   : 'rgba(153,27,27,0.2)';
+                                                                const scoreColor  = '#2c6edb';
+                                                                const scoreBg     = '#eaf2fb';
+                                                                const scoreBorder = '#e4e9f0';
                                                                 const scoreLabel  = score >= 80 ? 'Excellent' : score >= 60 ? 'Satisfactory' : 'Below Standard';
                                                                 return (
                                                                     <>
@@ -582,12 +584,12 @@ export default function SavedVideos() {
 
 /* ─────────────── Animations ─────────────── */
 const fadeIn  = keyframes`from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); }`;
-const shimmer = keyframes`0% { background-position: -600px 0; } 100% { background-position: 600px 0; }`;
+const skeletonPulse = keyframes`0%, 100% { opacity: 0.55; } 50% { opacity: 1; }`;
 
 /* ─────────────── Layout ─────────────── */
 const PageWrapper = styled.div`
     min-height: 100vh;
-    background: #f1f5f9;
+    background: #ffffff;
 `;
 
 const MobileMenuButton = styled.button`
@@ -600,94 +602,53 @@ const MobileMenuButton = styled.button`
 const MainContent = styled.div`
     margin-left: 256px;
     padding: 96px 36px 60px;
+    max-width: 1500px;
     animation: ${fadeIn} 0.3s ease;
     @media (max-width: 1024px) { margin-left: 0; padding: 86px 16px 48px; }
 `;
 
 /* ─────────────── Top Row ─────────────── */
 const TopRow = styled.div`
-    display: flex; align-items: flex-start; justify-content: space-between;
-    gap: 24px; margin-bottom: 32px; flex-wrap: wrap;
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 28px; margin-bottom: 24px;
+    padding-bottom: 24px; border-bottom: 1px solid #e4e9f0;
+    @media (max-width: 760px) { align-items: stretch; flex-direction: column; gap: 18px; }
 `;
 
 const HeaderBlock = styled.div`flex: 1; min-width: 200px;`;
 
 const PageTitle = styled.h1`
-    font-size: 1.75rem; font-weight: 700; color: #0f172a; margin: 0 0 6px;
+    font-size: 1.75rem; font-weight: 600; color: #14181f; margin: 0 0 6px;
     letter-spacing: -0.02em;
 `;
 
-const PageSubtitle = styled.p`font-size: 0.875rem; color: #64748b; margin: 0;`;
-
-/* ─────────────── Storage Widget ─────────────── */
-const StorageWidget = styled.div`
-    background: white; border: 1px solid #e2e8f0;
-    border-radius: 16px; padding: 18px 20px;
-    min-width: 240px; max-width: 280px; flex-shrink: 0;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
-`;
-
-const StorageTop = styled.div`display: flex; align-items: center; gap: 12px; margin-bottom: 12px;`;
-
-const StorageIconWrap = styled.div`
-    width: 36px; height: 36px; border-radius: 10px;
-    background: #eff6ff; display: flex; align-items: center;
-    justify-content: center; color: #0284c7; flex-shrink: 0;
-`;
-
-const StorageInfo = styled.div`flex: 1;`;
-
-const StorageLabel = styled.p`
-    font-size: 0.7rem; font-weight: 600; color: #94a3b8;
-    text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 2px;
-`;
-
-const StorageNumbers = styled.p`
-    font-size: 0.9375rem; font-weight: 700; color: ${(p) => p.$color}; margin: 0;
-    span { font-weight: 400; color: #94a3b8; font-size: 0.85rem; }
-`;
-
-const StorageBarTrack = styled.div`
-    height: 6px; background: #f1f5f9; border-radius: 99px; overflow: hidden;
-`;
-
-const StorageBarFill = styled.div`
-    height: 100%;
-    width: ${(p) => p.$pct}%;
-    background: ${(p) => p.$color};
-    border-radius: 99px;
-    transition: width 0.8s ease, background 0.3s;
-`;
-
-const StorageFooter = styled.div`
-    display: flex; justify-content: space-between;
-    font-size: 0.72rem; color: #94a3b8; margin-top: 8px;
-`;
+const PageSubtitle = styled.p`font-size: 0.875rem; color: #6b7280; margin: 0;`;
 
 const ControlsRow = styled.div`
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-bottom: 16px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    width: min(100%, 560px);
+    @media (max-width: 760px) { width: 100%; }
+    @media (max-width: 520px) { align-items: stretch; flex-direction: column; }
 `;
 
 const SearchWrap = styled.div`
     height: 40px;
-    border: 1px solid #dbe3ec;
+    border: 1px solid #e4e9f0;
     border-radius: 10px;
     background: #ffffff;
     display: flex;
     align-items: center;
     gap: 6px;
-    color: #94a3b8;
+    color: #6b7280;
     padding: 0 10px;
-    min-width: 260px;
+    min-width: 220px;
     flex: 1;
 
     &:focus-within {
-        border-color: #93c5fd;
-        box-shadow: 0 0 0 3px rgba(59,130,246,0.12);
+        border-color: #2c6edb;
     }
 `;
 
@@ -696,55 +657,30 @@ const SearchInput = styled.input`
     border: none;
     outline: none;
     background: transparent;
-    color: #0f172a;
+    color: #14181f;
     font-size: 0.85rem;
 
     &::placeholder {
-        color: #94a3b8;
+        color: #6b7280;
     }
 `;
 
 const SortSelect = styled.select`
     height: 40px;
     border-radius: 10px;
-    border: 1px solid #dbe3ec;
+    border: 1px solid #e4e9f0;
     padding: 0 10px;
     background: #ffffff;
-    color: #334155;
+    color: #14181f;
     font-size: 0.82rem;
     min-width: 165px;
-`;
-
-const StatPill = styled.div`
-    height: 40px;
-    border-radius: 10px;
-    border: 1px solid #dbe3ec;
-    background: #ffffff;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 0 12px;
-
-    span {
-        color: #94a3b8;
-        font-size: 0.75rem;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        font-weight: 600;
-    }
-
-    strong {
-        color: #0284c7;
-        font-size: 0.95rem;
-        font-weight: 700;
-    }
 `;
 
 /* ─────────────── Empty / Loading ─────────────── */
 const EmptyState = styled.div`
     display: flex; flex-direction: column; align-items: center;
-    padding: 80px 24px; background: white; border-radius: 20px;
-    border: 1px solid #e2e8f0; box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+    padding: 80px 24px; background: #ffffff; border-radius: 12px;
+    border: 1px solid #e4e9f0;
 `;
 
 const EmptyIconRing = styled.div`
@@ -765,59 +701,59 @@ const EmptyText = styled.p`
 const LoadingGrid = styled.div`display: flex; flex-direction: column; gap: 14px;`;
 
 const SkeletonCard = styled.div`
-    height: 84px; border-radius: 16px;
-    background: linear-gradient(90deg, #f1f5f9 25%, #e8edf3 50%, #f1f5f9 75%);
-    background-size: 800px 100%;
-    animation: ${shimmer} 1.5s infinite;
+    height: 112px;
+    background: #f6f9fc;
+    border-bottom: 1px solid #e4e9f0;
+    animation: ${skeletonPulse} 1.25s ease-in-out infinite;
 `;
 
 /* ─────────────── Video List ─────────────── */
-const VideoList = styled.div`display: flex; flex-direction: column; gap: 12px;`;
+const VideoList = styled.div`
+    display: flex;
+    flex-direction: column;
+    background: #ffffff;
+    border: 1px solid #e4e9f0;
+    border-radius: 12px;
+`;
 
 const VideoCard = styled.div`
-    background: white;
-    border-radius: 16px;
-    border: 1px solid ${(p) => (p.$isOpen ? "#bfdbfe" : "#e2e8f0")};
-    overflow: hidden;
-    padding-bottom: ${(p) => (p.$isOpen ? "0" : "16px")};
-    box-shadow: ${(p) => (p.$isOpen ? "0 4px 20px rgba(2,132,199,0.07)" : "0 1px 3px rgba(0,0,0,0.04)")};
-    transition: box-shadow 0.2s, border-color 0.2s;
-    &:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); border-color: #bfdbfe; }
+    background: ${(p) => (p.$isOpen ? "#f6f9fc" : "#ffffff")};
+    border-bottom: 1px solid #e4e9f0;
+    position: relative;
+    &:last-child { border-bottom: none; }
 `;
 
 const CardHeader = styled.div`
     display: flex; align-items: center; gap: 14px;
-    padding: 16px 20px; cursor: pointer; user-select: none;
+    padding: 20px 22px 8px; cursor: pointer; user-select: none;
 `;
 
 const ThumbIconWrap = styled.div`
-    width: 46px; height: 46px; border-radius: 12px; flex-shrink: 0;
-    background: #eff6ff; display: flex; align-items: center;
-    justify-content: center; color: #0284c7;
+    width: 42px; height: 42px; border-radius: 10px; flex-shrink: 0;
+    background: #eaf2fb; display: flex; align-items: center;
+    justify-content: center; color: #2c6edb;
 `;
 
 const CardMeta = styled.div`flex: 1; min-width: 0;`;
 
 const CardTitle = styled.p`
-    font-size: 0.9375rem; font-weight: 600; color: #0f172a;
+    font-size: 0.9375rem; font-weight: 600; color: #14181f;
     margin: 0 0 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 `;
 
 const CardDateRow = styled.div`
-    font-size: 0.78rem; color: #94a3b8;
+    font-size: 0.78rem; color: #6b7280;
     display: flex; align-items: center; gap: 5px;
 `;
 
-const FileSizeChip = styled.span`
-    background: #f1f5f9; border-radius: 4px; padding: 1px 6px;
-    font-size: 0.72rem; color: #64748b; font-weight: 500;
-`;
+const MetaDot = styled.span`color: #b4bbc5; padding: 0 2px;`;
 
 const CardActions = styled.div`display: flex; align-items: center; gap: 8px; flex-shrink: 0;`;
 
 const ToneBadge = styled.span`
-    font-size: 0.72rem; font-weight: 600; color: #0369a1;
-    background: #e0f2fe; padding: 3px 10px; border-radius: 20px;
+    font-size: 0.72rem; font-weight: 500; color: #14181f;
+    background: transparent; padding: 4px 10px; border-radius: 999px;
+    border: 1px solid #e4e9f0;
     text-transform: capitalize;
     @media (max-width: 640px) { display: none; }
 `;
@@ -825,28 +761,53 @@ const ToneBadge = styled.span`
 const PlayBtn = styled.button`
     display: flex; align-items: center; gap: 5px;
     padding: 6px 12px; border-radius: 8px;
-    background: #0284c7; color: white;
+    background: #2c6edb; color: white;
     border: none; cursor: pointer; font-size: 0.8rem; font-weight: 500;
     transition: background 0.2s;
-    &:hover { background: #0369a1; }
+    &:hover { background: #245ebc; }
     span { @media (max-width: 640px) { display: none; } }
 `;
 
-const DeleteBtn = styled.button`
-    background: none; border: none; cursor: pointer; color: #94a3b8;
-    padding: 7px; border-radius: 8px; display: flex; align-items: center;
-    transition: all 0.2s;
-    &:hover { color: #ef4444; background: #fef2f2; }
+const MoreMenuWrap = styled.div`position: relative;`;
+
+const MoreButton = styled.button`
+    width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+    background: transparent; color: #6b7280; border: 1px solid transparent;
+    border-radius: 8px; cursor: pointer;
+    &:hover, &[aria-expanded="true"] { background: #eaf2fb; color: #2c6edb; }
 `;
 
-const ChevronWrap = styled.div`color: #94a3b8; display: flex; align-items: center;`;
+const ActionMenu = styled.div`
+    position: absolute; right: 0; top: calc(100% + 6px); z-index: 20;
+    min-width: 150px; padding: 5px; background: #ffffff;
+    border: 1px solid #e4e9f0; border-radius: 9px;
+`;
+
+const MenuAction = styled.button`
+    width: 100%; display: flex; align-items: center; gap: 9px;
+    padding: 9px 10px; border: none; border-radius: 6px;
+    background: transparent; color: #14181f; font-size: 0.8rem;
+    text-align: left; cursor: pointer;
+    &:hover { background: #eaf2fb; color: #2c6edb; }
+`;
+
+const SummaryArea = styled.div`
+    padding: 0 150px 20px 78px;
+    @media (max-width: 760px) { padding: 4px 22px 20px; }
+`;
 
 const SummaryPreview = styled.p`
-    font-size: 0.8375rem; color: #64748b; line-height: 1.65;
-    padding: 0 20px 16px 80px; margin: 0;
-    display: -webkit-box; -webkit-line-clamp: 2;
+    font-size: 0.8375rem; color: #6b7280; line-height: 1.65;
+    margin: 0; max-width: 760px;
+    display: ${(p) => p.$expanded ? "block" : "-webkit-box"};
+    -webkit-line-clamp: ${(p) => p.$expanded ? "unset" : "2"};
     -webkit-box-orient: vertical; overflow: hidden;
-    @media (max-width: 640px) { padding-left: 20px; }
+`;
+
+const SummaryToggle = styled.button`
+    border: none; padding: 3px 0 0; background: transparent;
+    color: #2c6edb; font-size: 0.78rem; font-weight: 500; cursor: pointer;
+    &:hover { text-decoration: underline; }
 `;
 
 /* ─────────────── Expanded Area ─────────────── */
@@ -864,22 +825,23 @@ const InlineVideoWrap = styled.div`
 const InlineVideo = styled.video`width: 100%; max-height: 500px; display: block;`;
 
 const TabsScroll = styled.div`
-    display: flex; gap: 9px; padding: 0 20px 14px;
+    display: flex; gap: 22px; padding: 0 20px;
+    border-bottom: 1px solid #e4e9f0;
     overflow-x: auto; scrollbar-width: none;
     &::-webkit-scrollbar { display: none; }
 `;
 
 const TabPill = styled.button`
     display: flex; align-items: center; gap: 6px;
-    white-space: nowrap; padding: 8px 14px; border-radius: 999px;
-    border: 1px solid ${(p) => (p.$isActive ? "#0284c7" : "#dbe3ec")};
-    background: ${(p) => (p.$isActive ? "linear-gradient(135deg, #075985 0%, #0284c7 100%)" : "white")};
-    color: ${(p) => (p.$isActive ? "#ffffff" : "#475569")};
+    white-space: nowrap; padding: 10px 0 11px; border-radius: 0;
+    border: none;
+    border-bottom: 2px solid ${(p) => (p.$isActive ? "#2c6edb" : "transparent")};
+    background: transparent;
+    color: ${(p) => (p.$isActive ? "#14181f" : "#6b7280")};
     font-size: 0.79rem;
     font-weight: ${(p) => (p.$isActive ? "600" : "400")};
-    box-shadow: ${(p) => (p.$isActive ? "0 6px 16px rgba(2,132,199,0.25)" : "none")};
     cursor: pointer; transition: all 0.18s;
-    &:hover { border-color: #0284c7; color: ${(p) => (p.$isActive ? "#ffffff" : "#0284c7")}; }
+    &:hover { color: #14181f; }
 `;
 
 const TabIcon = styled.span`
@@ -903,8 +865,8 @@ const ContentPanelHeader = styled.div`
     align-items: center;
     gap: 10px;
     padding: 12px 14px;
-    background: linear-gradient(180deg, #f8fbff 0%, #f1f7fd 100%);
-    border-bottom: 1px solid #e5edf5;
+    background: #f6f9fc;
+    border-bottom: 1px solid #e4e9f0;
 `;
 
 const ContentPanelTitle = styled.div`
@@ -917,14 +879,8 @@ const ContentPanelTitle = styled.div`
 `;
 
 const ContentPanelHint = styled.span`
-    font-size: 0.65rem;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: #0284c7;
-    background: #e0f2fe;
-    border: 1px solid #bae6fd;
-    border-radius: 999px;
-    padding: 4px 8px;
+    font-size: 0.72rem;
+    color: #6b7280;
 `;
 
 const ContentBox = styled.p`
@@ -952,8 +908,8 @@ const MetricChip = styled.div`
 `;
 
 const MetricChipLabel = styled.p`
-    font-size: 0.68rem; font-weight: 600; color: #94a3b8;
-    text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 3px;
+    font-size: 0.72rem; font-weight: 500; color: #6b7280;
+    margin: 0 0 3px;
 `;
 
 const MetricChipValue = styled.p`font-size: 0.9375rem; font-weight: 600; color: #0284c7; margin: 0;`;
@@ -968,7 +924,6 @@ const Lightbox = styled.div`
 const LightboxInner = styled.div`
     background: #0f172a; border-radius: 16px; overflow: hidden;
     width: 100%; max-width: 860px;
-    box-shadow: 0 24px 64px rgba(0,0,0,0.5);
 `;
 
 const LightboxHeader = styled.div`
@@ -1121,8 +1076,8 @@ const SVScoreBlock = styled.div`
     justify-content: center;
     min-width: 80px;
     padding: 12px 14px;
-    background: ${p => p.$bg || 'rgba(22,101,52,0.08)'};
-    border: 1px solid ${p => p.$border || 'rgba(22,101,52,0.2)'};
+    background: ${p => p.$bg || '#eaf2fb'};
+    border: 1px solid ${p => p.$border || '#e4e9f0'};
     border-radius: 4px;
     flex-shrink: 0;
 `;
@@ -1130,7 +1085,7 @@ const SVScoreBlock = styled.div`
 const SVScoreNum = styled.span`
     font-size: 22px;
     font-weight: 500;
-    color: ${p => p.$color || '#166534'};
+    color: ${p => p.$color || '#2c6edb'};
     line-height: 1;
     letter-spacing: -0.03em;
     font-variant-numeric: tabular-nums;
@@ -1147,8 +1102,7 @@ const SVScoreLabel = styled.span`
     font-size: 0.625rem;
     font-weight: 700;
     letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: ${p => p.$color || '#166534'};
+    color: ${p => p.$color || '#2c6edb'};
     margin-top: 4px;
     opacity: 0.8;
 `;
@@ -1159,8 +1113,6 @@ const SVScoreBarLabel = styled.span`
     font-size: 0.6875rem;
     font-weight: 600;
     color: rgba(55,65,81,0.55);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
 `;
 
 const SVScoreBarTrack = styled.div`
@@ -1173,7 +1125,7 @@ const SVScoreBarTrack = styled.div`
 const SVScoreBarFill = styled.div`
     height: 100%;
     width: ${p => p.$pct ?? 0}%;
-    background: ${p => p.$color || '#166534'};
+    background: ${p => p.$color || '#2c6edb'};
     opacity: 0.7;
     border-radius: 2px;
     transition: width 0.6s ease;
@@ -1225,22 +1177,9 @@ const SVRatingTag = styled.span`
     font-size: 0.625rem;
     font-weight: 700;
     letter-spacing: 0.04em;
-    text-transform: uppercase;
     border-radius: 3px;
     padding: 2px 7px;
-    color: ${p =>
-        p.$rating === 'Ideal'    ? 'rgba(22,101,52,0.9)'  :
-        p.$rating === 'Fast'     ? 'rgba(146,64,14,0.9)'  :
-        p.$rating === 'Too Fast' ? 'rgba(153,27,27,0.9)'  :
-                                   'rgba(55,65,81,0.65)'};
-    background: ${p =>
-        p.$rating === 'Ideal'    ? 'rgba(22,101,52,0.1)'  :
-        p.$rating === 'Fast'     ? 'rgba(146,64,14,0.1)'  :
-        p.$rating === 'Too Fast' ? 'rgba(153,27,27,0.1)'  :
-                                   'rgba(0,0,0,0.05)'};
-    border: 1px solid ${p =>
-        p.$rating === 'Ideal'    ? 'rgba(22,101,52,0.2)'  :
-        p.$rating === 'Fast'     ? 'rgba(146,64,14,0.2)'  :
-        p.$rating === 'Too Fast' ? 'rgba(153,27,27,0.2)'  :
-                                   'rgba(0,0,0,0.09)'};
+    color: #14181f;
+    background: transparent;
+    border: 1px solid #e4e9f0;
 `;

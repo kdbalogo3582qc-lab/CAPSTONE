@@ -33,7 +33,7 @@ export default function Leftbar({ isMobileMenuOpen, closeMobileMenu }) {
       setActive("Faqs");
     } else if (path === "/how-it-works") {
       setActive("how-it-works");
-    } else if (path === "/saved-videos") {
+    } else if (path.startsWith("/saved-videos")) {
       setActive("My Recordings");
     } else if (path === "/compare-runs") {
       setActive("Compare Runs");

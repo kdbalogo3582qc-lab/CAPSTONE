@@ -27,6 +27,7 @@ function App() {
             <Route path="/train-model" element={<TrainModel />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/saved-videos" element={<SavedVideos />} />
+            <Route path="/saved-videos/:id" element={<Home />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/compare-runs" element={<CompareRuns />} />
             <Route path="/action-plan-tasks" element={<ActionPlanTasks />} />
