@@ -1,0 +1,17 @@
+# Core scientific stack
+numpy
+pandas
+scipy
+scikit-learn
+
+# Audio processing and transcription
+pydub
+librosa
+openai-whisper
+torch
+
+# AI and NLP helpers
+google-genai
+ffmpeg-python
+deep-translator
+python-dotenv
