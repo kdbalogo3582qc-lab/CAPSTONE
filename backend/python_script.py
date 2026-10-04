@@ -89,6 +89,21 @@ COMMUNITY_STANDARDS_CATEGORIES = (
 COMMUNITY_STANDARDS_CLEAR_STATUSES = {"clear", "allowed_educational_context"}
 
 
+def _default_violation_reason(category):
+    """Return a readable fallback when the model omits a category explanation."""
+    labels = {
+        "nudity_or_sexual_content": "The video contains nudity or sexual content that is not suitable for a general audience.",
+        "illegal_drugs_or_drug_use": "The video promotes, normalizes, or depicts illegal drugs or drug use in a disallowed way.",
+        "smoking_vaping_or_tobacco": "The video promotes, normalizes, or depicts smoking, vaping, or tobacco use in a disallowed way.",
+        "violence_gore_or_disturbing_content": "The video contains violence, gore, or disturbing content that is not suitable for a general audience.",
+        "hate_harassment_or_discrimination": "The video contains hate, harassment, or discriminatory content.",
+        "illegal_activities_or_dangerous_behavior": "The video promotes or demonstrates illegal activity or dangerous behavior.",
+        "sexual_content_involving_minors": "The video contains sexual or sexually suggestive content involving minors.",
+        "other_general_audience_unsuitability": "The video contains material that is otherwise unsuitable for children or a general audience.",
+    }
+    return labels.get(category, labels["other_general_audience_unsuitability"])
+
+
 def _normalize_community_standards(value):
     """Validate the model's moderation result and fail closed on any ambiguity."""
     rejected = {
@@ -97,6 +112,10 @@ def _normalize_community_standards(value):
         "reason": "The Community Standards evaluation was missing, incomplete, or invalid.",
         "categories": {},
         "violations": ["other_general_audience_unsuitability"],
+        "violation_details": [{
+            "category": "other_general_audience_unsuitability",
+            "reason": "The video could not be confidently verified as safe for a general audience.",
+        }],
     }
     if not isinstance(value, dict):
         return rejected
@@ -115,8 +134,36 @@ def _normalize_community_standards(value):
     if not is_explicitly_safe:
         rejected["reason"] = str(value.get("reason") or rejected["reason"])
         rejected["categories"] = categories if isinstance(categories, dict) else {}
-        rejected["violations"] = violations if isinstance(violations, list) and violations else [
-            "other_general_audience_unsuitability"
+        category_violations = [
+            category for category in COMMUNITY_STANDARDS_CATEGORIES
+            if isinstance(categories, dict) and categories.get(category) == "violation"
+        ]
+        listed_violations = [
+            category for category in violations
+            if category in COMMUNITY_STANDARDS_CATEGORIES
+        ] if isinstance(violations, list) else []
+        normalized_violations = list(dict.fromkeys(category_violations + listed_violations))
+        if not normalized_violations:
+            normalized_violations = ["other_general_audience_unsuitability"]
+        rejected["violations"] = normalized_violations
+
+        supplied_details = value.get("violation_details")
+        details_by_category = {}
+        if isinstance(supplied_details, list):
+            for detail in supplied_details:
+                if not isinstance(detail, dict):
+                    continue
+                category = detail.get("category")
+                reason = str(detail.get("reason") or "").strip()
+                if category in normalized_violations and reason:
+                    details_by_category[category] = reason
+
+        rejected["violation_details"] = [
+            {
+                "category": category,
+                "reason": details_by_category.get(category) or _default_violation_reason(category),
+            }
+            for category in normalized_violations
         ]
         return rejected
 
@@ -126,6 +173,7 @@ def _normalize_community_standards(value):
         "reason": str(value.get("reason") or "The advertisement passed the Community Standards Protocol."),
         "categories": {category: categories[category] for category in COMMUNITY_STANDARDS_CATEGORIES},
         "violations": [],
+        "violation_details": [],
     }
 
 
@@ -145,7 +193,7 @@ The advertisement must be safe for both children and adults. Reject content that
 
 Educational, awareness, prevention, health, and public-service messages may be allowed when their overall intent is to discourage, warn about, prevent, or help viewers avoid harmful behavior (for example, “Avoid using drugs,” “Stop smoking,” or “Say no to drugs”). That exception never permits graphic imagery, sexual content, harmful instructions, or a message that ultimately promotes or glorifies the behavior. Evaluate context and intent, not keywords alone.
 
-Set approved only when every category is clearly safe. Otherwise reject. Each category must be exactly clear, allowed_educational_context, or violation. List only violation category keys.
+Set approved only when every category is clearly safe. Otherwise reject. Each category must be exactly clear, allowed_educational_context, or violation. List only violation category keys. For every violation, add one matching violation_details entry that explains specifically what was detected and why it violates the guideline. Keep the explanation factual, non-graphic, and understandable to the advertiser. Do not merely repeat the category name.
 
 {
   "decision": "approved | rejected",
@@ -161,7 +209,13 @@ Set approved only when every category is clearly safe. Otherwise reject. Each ca
     "sexual_content_involving_minors": "clear | allowed_educational_context | violation",
     "other_general_audience_unsuitability": "clear | allowed_educational_context | violation"
   },
-  "violations": []
+  "violations": [],
+  "violation_details": [
+    {
+      "category": "<violation category key>",
+      "reason": "specific, non-graphic explanation of what was detected and why it violates the guideline"
+    }
+  ]
 }
 """
 

@@ -189,14 +189,58 @@ function getCommunityStandardsRejection(result) {
         return null;
     }
 
+    const categoryLabels = {
+        nudity_or_sexual_content: "Nudity or sexual content",
+        illegal_drugs_or_drug_use: "Illegal drugs or drug use",
+        smoking_vaping_or_tobacco: "Smoking, vaping, or tobacco",
+        violence_gore_or_disturbing_content: "Violence, gore, or disturbing content",
+        hate_harassment_or_discrimination: "Hate, harassment, or discrimination",
+        illegal_activities_or_dangerous_behavior: "Illegal activities or dangerous behavior",
+        sexual_content_involving_minors: "Sexual content involving minors",
+        other_general_audience_unsuitability: "Other general-audience unsuitability",
+    };
+    const violations = Array.isArray(moderation?.violations)
+        ? moderation.violations.filter((category) => categoryLabels[category])
+        : [];
+    const suppliedDetails = Array.isArray(moderation?.violation_details)
+        ? moderation.violation_details
+        : [];
+    const detailByCategory = new Map(
+        suppliedDetails
+            .filter((detail) => detail && categoryLabels[detail.category] && typeof detail.reason === "string")
+            .map((detail) => [detail.category, detail.reason.trim()])
+    );
+    const violationDetails = (violations.length ? violations : ["other_general_audience_unsuitability"])
+        .map((category) => ({
+            category,
+            label: categoryLabels[category],
+            reason: detailByCategory.get(category) || (
+                category === "other_general_audience_unsuitability"
+                    ? String(moderation?.reason || "The video could not be confidently verified as safe for a general audience.")
+                    : `The video violates the ${categoryLabels[category].toLowerCase()} guideline.`
+            ),
+        }));
+    const overallReason = String(
+        moderation?.reason || "This video does not meet the Community Standards for a general audience."
+    ).trim();
+    const detailedReasons = violationDetails
+        .map((detail, index) => `${index + 1}. ${detail.label}: ${detail.reason}`)
+        .join("\n");
+    const message = [
+        "Advertisement rejected. The video was not analyzed or saved.",
+        overallReason,
+        detailedReasons && `Guideline violation(s):\n${detailedReasons}`,
+    ].filter(Boolean).join("\n\n");
+
     return {
-        // Keep the rejection suitable for general audiences too: do not echo
-        // potentially inappropriate model descriptions back to the client.
-        message: "Advertisement rejected: This video does not meet the Community Standards for a general audience.",
+        message,
         community_standards: {
+            ...(moderation && typeof moderation === "object" ? moderation : {}),
             decision: "rejected",
             safe_for_general_audiences: false,
-            reason: "This video does not meet the Community Standards for a general audience.",
+            reason: overallReason,
+            violations: violationDetails.map((detail) => detail.category),
+            violation_details: violationDetails,
         },
     };
 }
@@ -662,14 +706,10 @@ app.post("/save-video", verifyToken, (req, res) => {
 
     const moderationDecision = communityStandardsDecisions.get(uploadedVideo.key);
     if (!moderationDecision?.approved) {
-        return res.status(422).json({
-            error: "Advertisement rejected: This video does not meet the Community Standards for a general audience.",
-            community_standards: {
-                decision: "rejected",
-                safe_for_general_audiences: false,
-                reason: "This video does not meet the Community Standards for a general audience.",
-            },
+        const rejection = getCommunityStandardsRejection({
+            community_standards: moderationDecision?.moderation,
         });
+        return res.status(422).json({ error: rejection.message, ...rejection });
     }
 
     const MAX_STORAGE = 5 * 1024 * 1024 * 1024;
