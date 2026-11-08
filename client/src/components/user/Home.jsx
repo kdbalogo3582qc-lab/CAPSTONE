@@ -1,3 +1,4 @@
+import { guidelineTime } from './guideline-time';
 import { provenanceLabel } from "./AnalysisProvenance";
 import { GuidelineFindings } from "./GuidelineReview";
 import React, { useEffect, useState, useRef, useCallback } from "react";
@@ -149,6 +150,9 @@ function Home() {
         try { return !!localStorage.getItem("home_uploadedVideoPath"); } catch { return false; }
     });
     const [error, setError] = useState("");
+    const [errorCode, setErrorCode] = useState('');
+    const [reviewNotice, setReviewNotice] = useState(null);
+    const [processingOutcome, setProcessingOutcome] = useState('idle');
 
     const [analysisResult, setAnalysisResultState] = useState(() => {
         try {
@@ -337,11 +341,12 @@ function Home() {
             setUploadedVideoPath(null);
             setUploadedVideoName(null);
             setUploadedFileSize(file.size);
-            setError("");
+            setError(""); setErrorCode(''); setReviewNotice(null); setProcessingOutcome('idle');
         }
     };
 
     const handleReset = () => {
+        setErrorCode(''); setReviewNotice(null); setProcessingOutcome('idle');
         pendingRunRef.current = null;
         setPreviousRuns([]);
         setVideoFile(null);
@@ -369,6 +374,7 @@ function Home() {
                 setUploadedVideoPathState(null); setUploadedVideoNameState(null); setUploadedFileSizeState(0);
                 setAnalysisResultState(null); setPreviewURL(''); setViewVideo(false); setVideoFile(null);
                 pendingRunRef.current = null; setPreviousRuns([]); setAnalysisComments('');
+                setError(''); setErrorCode(''); setReviewNotice(null); setProcessingOutcome('idle');
             }
             if (!isSavedRecordingView) localStorage.setItem('home_storage_owner', homeOwner);
         } catch {
@@ -400,6 +406,8 @@ function Home() {
 
         processingRef.current = true;
         setLoading(true);
+        setProcessingOutcome('processing');
+        setErrorCode('');
         setError("");
         setProgressLogs([]);
         setIsStreaming(true);
@@ -460,7 +468,7 @@ function Home() {
                     es.close();
                     try {
                         const payload = JSON.parse(e.data);
-                        reject(Object.assign(new Error(payload.message), { code: payload.code }));
+                        reject(Object.assign(new Error(payload.message), { code: payload.code, processingPayload: payload }));
                     } catch {
                         reject(new Error("Processing error. Please try again."));
                     }
@@ -476,24 +484,32 @@ function Home() {
 
             if (reviewed?.analysis_status === 'awaiting_acknowledgement') {
                 // SweetAlert text renders model output as text, never executable HTML.
+                setProcessingOutcome('awaiting_acknowledgement');
+                setReviewNotice(reviewed);
                 const findings = reviewed.community_standards.violation_details.map((detail, i) =>
                     `${i + 1}. ${detail.category.replace(/_/g, ' ')}: ${detail.reason}` +
-                    (detail.timestamp ? `\nTime: ${detail.timestamp}` : '') +
+                    (guidelineTime(detail) ? `\nTime: ${guidelineTime(detail).label}` : '\nTime unavailable') +
                     (detail.transcript_excerpt ? `\nTranscript: ${detail.transcript_excerpt}` : '')
                 ).join('\n\n');
                 const choice = await Swal.fire({
                     icon: 'warning', title: 'Community guideline flags',
-                    text: findings, showCancelButton: true,
+                    text: `${findings}\n\nProceed will record your acknowledgement and request analysis. The AI provider may still decline processing.`, showCancelButton: true,
                     confirmButtonText: 'Proceed with analysis', cancelButtonText: 'Cancel',
                     allowOutsideClick: false, allowEscapeKey: false,
                     confirmButtonColor: '#0284c7',
                     didOpen: () => { const el = Swal.getHtmlContainer(); if (el) el.style.whiteSpace = 'pre-wrap'; },
                 });
+                if (choice.isConfirmed) {
+                    setProcessingOutcome('processing');
+                    setProgressLogs(prev => [...prev, 'Proceed selected. Requesting effectiveness and audio analysis…']);
+                }
                 const { data } = await axios.post(`${ApiUrl.apiURL}/process-video`, {
                     ...request, reviewId: reviewed.review_id, action: choice.isConfirmed ? 'proceed' : 'cancel',
                 }, { withCredentials: true });
                 if (!choice.isConfirmed) {
                     pendingRunRef.current = null;
+                    setProcessingOutcome('cancelled');
+                    setReviewNotice(null);
                     setProgressLogs(prev => [...prev, 'Processing cancelled.']);
                     return;
                 }
@@ -501,6 +517,8 @@ function Home() {
             }
 
             pendingRunRef.current = null;
+            setProcessingOutcome('completed');
+            setReviewNotice(null);
             Swal.fire({
                 icon: 'success',
                 title: 'Analysis Complete!',
@@ -510,14 +528,26 @@ function Home() {
             });
 
         } catch (err) {
-            if ((err.response?.data?.code || err.code) === 'RUN_FAILED_RETRY') pendingRunRef.current = null;
-            const message = err.response?.data?.error || err.message;
+            const payload = err.response?.data || err.processingPayload || {};
+            const code = payload.code || err.code || 'PROCESSING_ERROR';
+            const limited = code === 'PROVIDER_LIMITATION';
+            // A terminal failed run needs a new request ID; network/busy retries keep their ID.
+            if (['RUN_FAILED_RETRY', 'PROVIDER_LIMITATION', 'PROCESSING_ERROR', 'REVIEW_FAILED'].includes(code)) pendingRunRef.current = null;
+            if (payload.community_standards?.state === 'flagged') setReviewNotice(payload);
+            const message = limited
+                ? payload.guideline_acknowledged_at
+                    ? 'Your acknowledgement was saved and analysis was requested. The AI provider declined to process this video under its content restrictions. The video is still uploaded; the same guideline review will not need another acknowledgement.'
+                    : 'The AI provider declined to review this video under its content restrictions. No analysis was completed.'
+                : payload.error || err.message;
+            setProcessingOutcome(limited ? 'provider_limited' : 'failed');
+            setErrorCode(code);
             setError(message);
             Swal.fire({
-                icon: 'error',
-                title: 'Processing Failed',
+                ...(limited ? {} : { icon: 'error' }),
+                title: limited ? 'AI provider limitation' : 'Processing failed',
                 text: message,
-                confirmButtonColor: '#ef4444'
+                confirmButtonText: 'Close',
+                confirmButtonColor: limited ? '#475467' : '#ef4444',
             });
         } finally {
             processingRef.current = false;
@@ -885,7 +915,7 @@ function Home() {
                                             setUploadedVideoPath(null);
                                             setUploadedVideoName(null);
                                             setUploadedFileSize(0);
-                                            setError("");
+                                            setError(""); setErrorCode(''); setReviewNotice(null); setProcessingOutcome('idle');
                                         }}
                                         disabled={isStreaming}
                                     >
@@ -909,10 +939,12 @@ function Home() {
                     )}
 
                     {error && (
-                        <ErrorMessage>
-                            <strong>Error:</strong> {error}
+                        <ErrorMessage $limited={errorCode === 'PROVIDER_LIMITATION'}>
+                            <strong>{errorCode === 'PROVIDER_LIMITATION' ? 'Provider limitation:' : 'Error:'}</strong> {error}
                         </ErrorMessage>
                     )}
+
+                    {reviewNotice && !analysisResult && <GuidelineFindings analysis={reviewNotice} />}
 
                     {(isStreaming || progressLogs.length > 0) && !analysisResult && (
                         <ProgressPanel>
@@ -922,14 +954,13 @@ function Home() {
                                     {isStreaming ? (
                                         <>
                                             <SpinIcon><FiLoader size={16} /></SpinIcon>
-                                            Analyzing your video…
+                                            {processingOutcome === 'awaiting_acknowledgement' ? 'Waiting for your choice…' : 'Processing your video…'}
                                         </>
-                                    ) : (
-                                        <>
-                                            <FiCheckCircle size={16} style={{ color: '#22c55e' }} />
-                                            Processing complete
-                                        </>
-                                    )}
+                                    ) : processingOutcome === 'completed' ? 'Analysis complete'
+                                        : processingOutcome === 'provider_limited' ? 'Analysis stopped by the AI provider'
+                                            : processingOutcome === 'cancelled' ? 'Processing cancelled'
+                                                : processingOutcome === 'failed' ? 'Processing stopped'
+                                                    : 'Processing status'}
                                 </ProgressTitle>
                             </ProgressHeader>
                             <ProgressSteps ref={progressPanelRef}>
@@ -2659,13 +2690,13 @@ const SecondaryButton = styled.button`
 `;
 
 const ErrorMessage = styled.div`
-    color: #b91c1c;
+    color: ${p => p.$limited ? '#854d0e' : '#b91c1c'};
     margin: 20px 0 0 0;
     font-size: 0.875rem;
     padding: 14px 16px;
-    background: #fef2f2;
+    background: ${p => p.$limited ? '#fffbeb' : '#fef2f2'};
     border-radius: 12px;
-    border: 1px solid #fecaca;
+    border: 1px solid ${p => p.$limited ? '#f3dfae' : '#fecaca'};
     display: flex;
     align-items: center;
     gap: 8px;

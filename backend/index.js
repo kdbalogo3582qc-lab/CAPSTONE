@@ -239,7 +239,7 @@ const reviewFlow = createReviewFlow({ query, run: (file, job, progress) => new P
         clearTimeout(timer);
         try {
             const result = removeIncomeSegment(parsePythonOutput(output));
-            if (result.error) return reject(Object.assign(new Error(result.error), { code: result.code, status: 502 }));
+            if (result.error) return reject(Object.assign(new Error(result.error), { code: result.code, provider_reason: result.provider_reason, status: result.code === "PROVIDER_LIMITATION" ? 422 : 502 }));
             resolve(result);
         } catch { reject(Object.assign(new Error("Invalid processing response. Please retry."), { status: 502, code: "PROCESSING_ERROR" })); }
     });

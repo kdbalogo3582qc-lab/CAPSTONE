@@ -38,7 +38,10 @@ export function createAnalysisRuns({ query, run }) {
             if (existing.review_id !== reviewRow.id || existing.identity_hash !== identity.hash || decode(existing.metadata_json).requested_fresh !== options.forceFresh)
                 throw error('This request reference belongs to different analysis inputs. Start a new request.', 'INVALID_RUN', 400);
             if (existing.status === 'completed') return envelope(existing, reviewRow);
-            if (existing.status === 'failed') throw error('This run failed. Retry with a new requestId.', 'RUN_FAILED_RETRY');
+            if (existing.status === 'failed') {
+                if (existing.error_code === 'PROVIDER_LIMITATION') throw error('The AI provider declined this analysis run. The recorded guideline acknowledgement is retained.', 'PROVIDER_LIMITATION', 422);
+                throw error('This run failed. Retry with a new requestId.', 'RUN_FAILED_RETRY');
+            }
         }
         await query('INSERT IGNORE INTO analysis_identity_locks (user_id,identity_hash) VALUES (?,?)', [user, identity.hash]);
         const lease = randomUUID();

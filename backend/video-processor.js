@@ -17,7 +17,9 @@ export const createVideoProcessor = (reviewFlow, getUploadedVideoPath) => async 
         else res.json(result);
     } catch (err) {
         const payload = { error: err.message, message: err.message, code: err.code || 'PROCESSING_ERROR',
-            review_state: err.review_state, retryable: !['INVALID_REVIEW', 'REVIEW_EXPIRED'].includes(err.code) };
+            review_state: err.review_state, analysis_status: err.analysis_status, community_standards: err.community_standards,
+            review_id: err.review_id, guideline_acknowledged_at: err.guideline_acknowledged_at, provider_reason: err.provider_reason,
+            retryable: !['INVALID_REVIEW', 'REVIEW_EXPIRED', 'PROVIDER_LIMITATION'].includes(err.code) };
         if (streaming) send('error', payload);
         else res.status(err.status || 500).json(payload);
     } finally {

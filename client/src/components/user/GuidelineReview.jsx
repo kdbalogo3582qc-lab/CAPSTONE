@@ -1,3 +1,4 @@
+import { guidelineTime } from './guideline-time';
 import React from 'react';
 import styled from 'styled-components';
 
@@ -41,7 +42,7 @@ export function GuidelineFindings({ analysis }) {
                 {findings.map((detail, index) => <Finding key={`${detail.category}-${index}`}>
                     <FindingHeader>
                         <FindingTitle>{categoryLabels[detail.category] || String(detail.category || 'Guideline finding').replace(/_/g, ' ')}</FindingTitle>
-                        {detail.timestamp && <Timestamp>Time: {detail.timestamp}</Timestamp>}
+                        <Timestamp>{guidelineTime(detail) ? `Time: ${guidelineTime(detail).label}` : 'Time unavailable'}</Timestamp>
                     </FindingHeader>
                     <FindingReason>{detail.reason}</FindingReason>
                     {detail.transcript_excerpt && <Excerpt><ExcerptLabel>Transcript excerpt</ExcerptLabel>{detail.transcript_excerpt}</Excerpt>}

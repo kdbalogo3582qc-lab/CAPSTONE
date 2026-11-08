@@ -127,20 +127,57 @@ def _normalize_community_standards(value):
         if len(matches) != 1 or not isinstance(matches[0].get("reason"), str) or not matches[0]["reason"].strip():
             return failed
         detail = {"category": category, "reason": matches[0]["reason"].strip()}
-        for key in ("timestamp", "transcript_excerpt"):
+        for key in ("transcript_excerpt",):
             if isinstance(matches[0].get(key), str) and matches[0][key].strip():
                 detail[key] = matches[0][key].strip()
+        position = _review_timestamp(matches[0].get("timestamp"))
+        if position is not None:
+            detail.update(position)
         details.append(detail)
     return {**value, "state": "flagged" if found else "passed", "violation_details": details}
 
 
+class ProviderLimitationError(RuntimeError):
+    def __init__(self, reason):
+        super().__init__("The AI provider could not analyze this video because of its content restrictions. Your guideline acknowledgement does not override the provider's restrictions.")
+        self.provider_reason = reason
+
+
 def _provider_text(response):
+    """Keep provider refusals distinct from missing output or application review flags."""
+    def enum_name(value):
+        return str(getattr(value, "value", value) or "").upper().rsplit(".", 1)[-1]
     feedback = getattr(response, "prompt_feedback", None)
-    block = str(getattr(feedback, "block_reason", "") or "").upper()
-    reasons = [str(getattr(c, "finish_reason", "")).upper() for c in (getattr(response, "candidates", None) or [])]
-    if (block and "UNSPECIFIED" not in block) or any(any(k in r for k in ("SAFETY", "PROHIBITED", "BLOCKLIST", "RECITATION")) for r in reasons):
-        raise RuntimeError("The AI provider declined to process this video under its safety restrictions. Acknowledging guideline flags cannot override this limitation.")
+    block = enum_name(getattr(feedback, "block_reason", None))
+    if block and block not in {"0", "UNSPECIFIED", "BLOCKED_REASON_UNSPECIFIED", "BLOCK_REASON_UNSPECIFIED"}:
+        raise ProviderLimitationError(block)
+    restricted = {"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "RECITATION", "SPII", "IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT"}
+    for candidate in (getattr(response, "candidates", None) or []):
+        reason = enum_name(getattr(candidate, "finish_reason", None))
+        if reason in restricted or any(getattr(rating, "blocked", False) for rating in (getattr(candidate, "safety_ratings", None) or [])):
+            raise ProviderLimitationError(reason or "SAFETY")
     return response.text
+
+
+def _review_timestamp(value, duration=None):
+    """Parse actual supplied playback positions; never substitute zero for missing evidence."""
+    if not isinstance(value, str):
+        return None
+    match = re.fullmatch(r"(?:(\d{1,3}):)?(\d{1,2}):([0-5]\d)(?:\.(\d{1,3}))?", value.strip())
+    if not match:
+        return None
+    hours = int(match.group(1) or 0)
+    minutes = int(match.group(2))
+    if match.group(1) is not None and minutes >= 60:
+        return None
+    seconds = hours * 3600 + minutes * 60 + int(match.group(3)) + float("0." + (match.group(4) or "0"))
+    if duration is not None and seconds > duration:
+        return None
+    whole = int(seconds)
+    display = f"{whole // 3600:02d}:{whole // 60 % 60:02d}:{whole % 60:02d}" if whole >= 3600 else f"{whole // 60:02d}:{whole % 60:02d}"
+    if seconds % 1:
+        display += f"{seconds % 1:.3f}"[1:].rstrip("0")
+    return {"timestamp": display, "timestamp_seconds": seconds, "timestamp_source": "ai_video_review"}
 
 
 def _parse_json_object(text):
@@ -159,7 +196,7 @@ The advertisement must be safe for both children and adults. Reject content that
 
 Educational, awareness, prevention, health, and public-service messages may be allowed when their overall intent is to discourage, warn about, prevent, or help viewers avoid harmful behavior (for example, “Avoid using drugs,” “Stop smoking,” or “Say no to drugs”). That exception never permits graphic imagery, sexual content, harmful instructions, or a message that ultimately promotes or glorifies the behavior. Evaluate context and intent, not keywords alone.
 
-Set approved only when every category is clearly safe. Otherwise reject. Each category must be exactly clear, allowed_educational_context, or violation. List only violation category keys. For every violation, add one matching violation_details entry that explains specifically what was detected and why it violates the guideline. Keep the explanation factual, non-graphic, and understandable to the advertiser. Do not merely repeat the category name. Include timestamp and transcript_excerpt fields only when directly supported by the video; omit them when unavailable. Never invent evidence.
+Set approved only when every category is clearly safe. Otherwise reject. Each category must be exactly clear, allowed_educational_context, or violation. List only violation category keys. For every violation, add one matching violation_details entry that explains specifically what was detected and why it violates the guideline. Keep the explanation factual, non-graphic, and understandable to the advertiser. Do not merely repeat the category name. Include timestamp and transcript_excerpt fields only when directly supported by the video; omit them when unavailable. Never invent evidence. Timestamps must be absolute elapsed playback positions in MM:SS (or HH:MM:SS) from the first frame of the complete upload, including any intro. Never use 00:00 as a placeholder. Use 00:00 only when the observation is visible or audible at the actual beginning; otherwise omit the timestamp when its position is uncertain.
 
 {
   "decision": "approved | rejected",
@@ -318,6 +355,16 @@ def transcribe_and_translate_audio(video_path, comments=None, review_only=False,
                           COMMUNITY_STANDARDS_PROMPT],
             )
             community_standards = _normalize_community_standards(_parse_json_object(_provider_text(moderation_response)))
+            try:
+                duration = float(ffmpeg.probe(working_video_path).get("format", {}).get("duration", "nan"))
+            except Exception:
+                duration = None
+            for detail in community_standards.get("violation_details", []):
+                position = _review_timestamp(detail.get("timestamp"), duration)
+                for key in ("timestamp", "timestamp_seconds", "timestamp_source"):
+                    detail.pop(key, None)
+                if position is not None:
+                    detail.update(position)
         if review_only or (recorded_review is None and community_standards.get("state") == "flagged"):
             return {"community_standards": community_standards, "analysis_status": "awaiting_acknowledgement" if community_standards.get("state") == "flagged" else "reviewed"}
         if community_standards.get("state") not in ("passed", "flagged"):
@@ -726,7 +773,8 @@ if __name__ == "__main__":
                 result["transcript"] = result.pop("original_transcript")
             _output_result(result)
         except Exception as e:
-            _output_result({"error": str(e), "code": "PROVIDER_LIMITATION" if "provider declined" in str(e) else "PROCESSING_ERROR"})
+            _output_result({"error": str(e), "code": "PROVIDER_LIMITATION" if isinstance(e, ProviderLimitationError) else "PROCESSING_ERROR",
+                            "provider_reason": getattr(e, "provider_reason", None)})
 
     elif len(sys.argv) == 3 and sys.argv[1] == "--prompt":
         try:

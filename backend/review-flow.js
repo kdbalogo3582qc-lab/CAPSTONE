@@ -89,6 +89,7 @@ export function createReviewFlow({ query, run, identify = fingerprint }) {
         const ack = row.acknowledged_at || (review.state === 'flagged' && action === 'proceed' ? new Date().toISOString() : null);
         try {
             await query('UPDATE video_reviews SET acknowledged_at=? WHERE id=?', [ack, row.id]);
+            if (ack) progress('Guideline acknowledgement recorded. Continuing effectiveness and audio analysis.');
             row.review_json = JSON.stringify(review);
             row.acknowledged_at = ack;
             row.absolutePath = file.absolutePath;
@@ -96,8 +97,12 @@ export function createReviewFlow({ query, run, identify = fingerprint }) {
             await query("UPDATE video_reviews SET phase='completed', result_json=? WHERE id=?", [JSON.stringify(output), row.id]);
             return output;
         } catch (e) {
-            await query("UPDATE video_reviews SET phase='analysis_failed' WHERE id=?", [row.id]);
-            throw e;
+            const limited = e.code === 'PROVIDER_LIMITATION';
+            await query('UPDATE video_reviews SET phase=? WHERE id=?', [limited ? 'provider_limited' : 'analysis_failed', row.id]);
+            throw Object.assign(e, {
+                analysis_status: limited ? 'provider_limited' : 'analysis_failed',
+                community_standards: review, review_id: row.id, guideline_acknowledged_at: ack,
+            });
         }
     }
     async function savedResult(user, file, runId) {
