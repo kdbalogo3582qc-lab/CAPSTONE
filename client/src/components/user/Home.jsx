@@ -1,3 +1,5 @@
+import { provenanceLabel } from "./AnalysisProvenance";
+import { GuidelineFindings } from "./GuidelineReview";
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import axios from "axios";
 import Navbar from "./Navbar";
@@ -61,7 +63,7 @@ const buildSavedVideoUrl = (videoPath) => {
 const formatSavedVideoName = (videoPath) => {
     if (!videoPath) return "Untitled recording";
     const fileName = String(videoPath).split("/").pop() || videoPath;
-    return fileName.replace(/^\d+-/, "");
+    return fileName.replace(/^\d+-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-)?/i, "");
 };
 
 const formatSavedBytes = (bytes) => {
@@ -90,6 +92,8 @@ const getSavedTone = (recording) => {
 
 function Home() {
     const { user, loading } = useAuth();
+    const homeOwner = user?.acc_id == null ? null : String(user.acc_id);
+    const [storageOwner, setStorageOwner] = useState(null);
     const location = useLocation();
     const { id: savedVideoId } = useParams();
     const isSavedRecordingView = Boolean(savedVideoId);
@@ -324,6 +328,8 @@ function Home() {
     const handleFileChange = (e) => {
         const file = e.target.files[0];
         if (file) {
+            pendingRunRef.current = null;
+            setPreviousRuns([]);
             setVideoFile(file);
             setViewVideo(true);
             setPreviewURL(URL.createObjectURL(file));
@@ -336,6 +342,8 @@ function Home() {
     };
 
     const handleReset = () => {
+        pendingRunRef.current = null;
+        setPreviousRuns([]);
         setVideoFile(null);
         setPreviewURL("");
         setViewVideo(false);
@@ -349,8 +357,38 @@ function Home() {
         setResetKey(k => k + 1);
     };
 
-    const handleSubmit = async () => {
-        if (!videoFile) {
+    const processingRef = useRef(false);
+    const pendingRunRef = useRef(null);
+    const [analysisComments, setAnalysisComments] = useState('');
+    const [previousRuns, setPreviousRuns] = useState([]);
+    useEffect(() => {
+        if (!homeOwner) return;
+        try {
+            if (localStorage.getItem('home_storage_owner') !== homeOwner && !isSavedRecordingView) {
+                ['home_uploadedVideoPath', 'home_uploadedVideoName', 'home_uploadedFileSize', 'home_analysisResult'].forEach(key => localStorage.removeItem(key));
+                setUploadedVideoPathState(null); setUploadedVideoNameState(null); setUploadedFileSizeState(0);
+                setAnalysisResultState(null); setPreviewURL(''); setViewVideo(false); setVideoFile(null);
+                pendingRunRef.current = null; setPreviousRuns([]); setAnalysisComments('');
+            }
+            if (!isSavedRecordingView) localStorage.setItem('home_storage_owner', homeOwner);
+        } catch {
+            if (!isSavedRecordingView) {
+                setUploadedVideoPathState(null); setAnalysisResultState(null); setPreviewURL(''); setViewVideo(false);
+            }
+        }
+        setStorageOwner(homeOwner);
+    }, [homeOwner, isSavedRecordingView]);
+    useEffect(() => {
+        if (!uploadedVideoPath || isSavedRecordingView || !homeOwner || storageOwner !== homeOwner) return;
+        let active = true;
+        axios.get(`${ApiUrl.apiURL}/analysis-runs`, { params: { videoPath: uploadedVideoPath }, withCredentials: true })
+            .then(({ data }) => { if (active) setPreviousRuns(Array.isArray(data) ? data : []); })
+            .catch(() => { if (active) setPreviousRuns([]); });
+        return () => { active = false; };
+    }, [uploadedVideoPath, analysisResult?.run_id, isSavedRecordingView, homeOwner, storageOwner]);
+    const handleSubmit = async (forceFresh = false) => {
+        if (processingRef.current) return;
+        if (!videoFile && !uploadedVideoPath) {
             Swal.fire({
                 icon: 'warning',
                 title: 'No Video Selected',
@@ -360,35 +398,36 @@ function Home() {
             return;
         }
 
+        processingRef.current = true;
         setLoading(true);
         setError("");
-        setAnalysisResult(null);
         setProgressLogs([]);
         setIsStreaming(true);
 
         try {
-            // ─── Step 1: Upload video ─────────────────────────────────────────
-            // FIX: added credentials: "include" to fetch call
-            const formData = new FormData();
-            formData.append("video", videoFile);
-            const uploadRes = await fetch(`${ApiUrl.apiURL}/upload-video`, {
-                method: "POST",
-                body: formData,
-                credentials: "include",  // ← FIX
-            });
-            const uploadData = await uploadRes.json();
-            const videoPath = uploadData.videoPath || uploadData.data?.videoPath;
-            if (!videoPath) throw new Error(uploadData.error || "Upload failed");
+            let videoPath = uploadedVideoPath;
+            if (!videoPath) {
+                const formData = new FormData();
+                formData.append("video", videoFile);
+                const uploadRes = await fetch(`${ApiUrl.apiURL}/upload-video`, {
+                    method: "POST", body: formData, credentials: "include",
+                });
+                const uploadData = await uploadRes.json();
+                if (!uploadRes.ok || !uploadData.videoPath) throw new Error(uploadData.error || "Upload failed");
+                videoPath = uploadData.videoPath;
+                setUploadedVideoPath(videoPath);
+                setUploadedVideoName(videoFile.name);
+            }
 
-            setUploadedVideoPath(videoPath);
-            setUploadedVideoName(videoFile.name);
-
-            // ─── Step 2: Stream progress via SSE ─────────────────────────────
-            // NOTE: EventSource doesn't support credentials, but /process-video-stream
-            // doesn't use verifyToken so this is fine as-is.
-            await new Promise((resolve, reject) => {
-                const url = `${ApiUrl.apiURL}/process-video-stream?videoPath=${encodeURIComponent(videoPath)}`;
-                const es = new EventSource(url);
+            const comments = analysisComments.split('\n').map(text => text.trim()).filter(Boolean);
+            const previous = pendingRunRef.current;
+            const request = !forceFresh && previous && previous.videoPath === videoPath && JSON.stringify(previous.comments) === JSON.stringify(comments)
+                ? previous : { videoPath, comments, forceFresh, requestId: window.crypto.randomUUID() };
+            pendingRunRef.current = request;
+            const reviewed = await new Promise((resolve, reject) => {
+                const params = new URLSearchParams({ videoPath, comments: JSON.stringify(request.comments), forceFresh: String(request.forceFresh), requestId: request.requestId });
+                const url = `${ApiUrl.apiURL}/process-video-stream?${params}`;
+                const es = new EventSource(url, { withCredentials: true });
 
                 es.onopen = () => {
                     console.log("SSE connection opened");
@@ -397,6 +436,11 @@ function Home() {
                 es.addEventListener("progress", (e) => {
                     const { message } = JSON.parse(e.data);
                     setProgressLogs((prev) => [...prev, message]);
+                });
+
+                es.addEventListener("review", (e) => {
+                    es.close();
+                    resolve(JSON.parse(e.data).data);
                 });
 
                 es.addEventListener("result", (e) => {
@@ -415,8 +459,8 @@ function Home() {
                     console.log("SSE error event:", e.data);
                     es.close();
                     try {
-                        const { message } = JSON.parse(e.data);
-                        reject(new Error(message));
+                        const payload = JSON.parse(e.data);
+                        reject(Object.assign(new Error(payload.message), { code: payload.code }));
                     } catch {
                         reject(new Error("Processing error. Please try again."));
                     }
@@ -430,6 +474,33 @@ function Home() {
                 };
             });
 
+            if (reviewed?.analysis_status === 'awaiting_acknowledgement') {
+                // SweetAlert text renders model output as text, never executable HTML.
+                const findings = reviewed.community_standards.violation_details.map((detail, i) =>
+                    `${i + 1}. ${detail.category.replace(/_/g, ' ')}: ${detail.reason}` +
+                    (detail.timestamp ? `\nTime: ${detail.timestamp}` : '') +
+                    (detail.transcript_excerpt ? `\nTranscript: ${detail.transcript_excerpt}` : '')
+                ).join('\n\n');
+                const choice = await Swal.fire({
+                    icon: 'warning', title: 'Community guideline flags',
+                    text: findings, showCancelButton: true,
+                    confirmButtonText: 'Proceed with analysis', cancelButtonText: 'Cancel',
+                    allowOutsideClick: false, allowEscapeKey: false,
+                    confirmButtonColor: '#0284c7',
+                    didOpen: () => { const el = Swal.getHtmlContainer(); if (el) el.style.whiteSpace = 'pre-wrap'; },
+                });
+                const { data } = await axios.post(`${ApiUrl.apiURL}/process-video`, {
+                    ...request, reviewId: reviewed.review_id, action: choice.isConfirmed ? 'proceed' : 'cancel',
+                }, { withCredentials: true });
+                if (!choice.isConfirmed) {
+                    pendingRunRef.current = null;
+                    setProgressLogs(prev => [...prev, 'Processing cancelled.']);
+                    return;
+                }
+                setAnalysisResult(data);
+            }
+
+            pendingRunRef.current = null;
             Swal.fire({
                 icon: 'success',
                 title: 'Analysis Complete!',
@@ -439,14 +510,17 @@ function Home() {
             });
 
         } catch (err) {
-            setError(err.message);
+            if ((err.response?.data?.code || err.code) === 'RUN_FAILED_RETRY') pendingRunRef.current = null;
+            const message = err.response?.data?.error || err.message;
+            setError(message);
             Swal.fire({
                 icon: 'error',
                 title: 'Processing Failed',
-                text: err.message,
+                text: message,
                 confirmButtonColor: '#ef4444'
             });
         } finally {
+            processingRef.current = false;
             setLoading(false);
             setIsStreaming(false);
         }
@@ -480,6 +554,7 @@ function Home() {
                 `${ApiUrl.apiURL}/save-video`,
                 {
                     video_path: uploadedVideoPath,
+                    run_id: analysisResult.run_id,
                     summary,
                     analysis: analysisResult,
                     extra_results: {
@@ -555,7 +630,7 @@ function Home() {
     };
 
     // ─── Show loading spinner while auth state resolves ───────────────────────
-    if (loading || savedRecordingLoading) {
+    if (loading || savedRecordingLoading || !homeOwner || storageOwner !== homeOwner) {
         return (
             <LoadingScreen>
                 <LoadingSpinner />
@@ -816,10 +891,15 @@ function Home() {
                                     >
                                         Remove
                                     </SecondaryButton>
+                                    <label style={{ display: 'block', fontSize: 13 }}>
+                                        Viewer comments (optional, one per line)
+                                        <textarea value={analysisComments} onChange={e => setAnalysisComments(e.target.value)} disabled={isStreaming}
+                                            rows={2} style={{ display: 'block', width: '100%', border: '1px solid #cbd5e1', borderRadius: 6, padding: 8 }} />
+                                    </label>
                                     <PrimaryButton
-                                        onClick={handleSubmit}
-                                        disabled={renderLoading || isStreaming || !videoFile}
-                                        title={!videoFile ? "Re-upload your video to analyze again" : ""}
+                                        onClick={() => handleSubmit(false)}
+                                        disabled={renderLoading || isStreaming || (!videoFile && !uploadedVideoPath)}
+                                        title=""
                                     >
                                         {isStreaming ? "Processing..." : renderLoading ? "Uploading..." : "Analyze Video"}
                                     </PrimaryButton>
@@ -871,6 +951,33 @@ function Home() {
 
                     {analysisResult && (
                         <ResultsSection>
+                            <GuidelineFindings analysis={analysisResult} />
+                            {!isSavedRecordingView && <RunToolbar aria-label="Analysis runs">
+                                <RunIntro>
+                                    <RunTitle>Analysis runs</RunTitle>
+                                    <RunDescription>Create a fresh analysis or revisit an earlier result. AI outputs may vary.</RunDescription>
+                                </RunIntro>
+                                <RunControls>
+                                    {previousRuns.length > 0 && <RunField>
+                                        <label htmlFor="previous-analysis-run">Previous runs</label>
+                                        <RunSelect id="previous-analysis-run" value={analysisResult.run_id || ''} disabled={isStreaming || renderLoading}
+                                            onChange={event => {
+                                                const selected = previousRuns.find(run => run.run_id === event.target.value);
+                                                if (selected) setAnalysisResult(selected);
+                                            }}>
+                                            <option value="">Select a run</option>
+                                            {previousRuns.map(run => <option key={run.run_id} value={run.run_id}>
+                                                {provenanceLabel(run)} · {run.analysis_metadata?.completed_at
+                                                    ? new Date(run.analysis_metadata.completed_at).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' })
+                                                    : 'Unknown date'}
+                                            </option>)}
+                                        </RunSelect>
+                                    </RunField>}
+                                    <ReanalyzeButton type="button" onClick={() => handleSubmit(true)} disabled={isStreaming || renderLoading}>
+                                        {isStreaming || renderLoading ? 'Processing…' : 'Re-analyze'}
+                                    </ReanalyzeButton>
+                                </RunControls>
+                            </RunToolbar>}
                             <ResultsHeader>
                                 <SearchBar>
                                     <CiSearch className="search-icon" />
@@ -885,16 +992,20 @@ function Home() {
                                 <ActionButtons>
                                     <ActionButton title="Tag"><GoTag size={18} /></ActionButton>
                                     <ActionButton title="Share"><FaShareAlt size={16} /></ActionButton>
-                                    <ActionButton title="Download"><FiDownload size={18} /></ActionButton>
+                                    <ActionButton title="Export analysis JSON" onClick={() => {
+                                        const url = URL.createObjectURL(new Blob([JSON.stringify(analysisResult, null, 2)], { type: 'application/json' }));
+                                        const link = document.createElement('a'); link.href = url; link.download = `analysis-${analysisResult.run_id || 'historical'}.json`;
+                                        link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+                                    }}><FiDownload size={18} /></ActionButton>
                                     <SaveButton
                                         title="Save to Recordings"
                                         onClick={handleSaveVideo}
-                                        disabled={isSaving}
+                                        disabled={isSaving || isStreaming || renderLoading}
                                     >
                                         <FiBookmark size={18} />
                                         {isSaving ? "Saving..." : "Save"}
                                     </SaveButton>
-                                    <ResetButton title="Reset" onClick={handleReset}>
+                                    <ResetButton title="Reset" onClick={handleReset} disabled={isStreaming || renderLoading}>
                                         <FiRotateCcw size={15} />
                                         Reset
                                     </ResetButton>
@@ -1009,8 +1120,8 @@ function Home() {
                                 {current_nav.id === 1 && (
                                     <ContentSection>
                                         {analysisResult.detected_language && (() => {
-                                            const confidence = analysisResult.language_confidence ?? 1;
-                                            const pct = Math.round(confidence * 100);
+                                            const confidence = analysisResult.language_confidence;
+                                            const pct = Number.isFinite(confidence) ? Math.round(confidence * 100) : null;
                                             const isLow = confidence < 0.6;
                                             return (
                                                 <Banner $tone={isLow ? 'warning' : 'info'}>
@@ -1019,7 +1130,7 @@ function Home() {
                                                     </BannerIconWrap>
                                                     <BannerBody>
                                                         <BannerTitle $tone={isLow ? 'warning' : 'info'}>
-                                                            Detected language: {analysisResult.detected_language} · {pct}% confidence
+                                                            Detected language: {analysisResult.detected_language} · {pct === null ? 'Confidence unavailable' : `${pct}% AI estimated confidence`}
                                                         </BannerTitle>
                                                         <BannerDesc $tone={isLow ? 'warning' : 'info'}>
                                                             {isLow
@@ -1190,7 +1301,7 @@ function Home() {
                                                             <>
                                                                 <MetricCard>
                                                                     <MetricLabel>Avg Pitch</MetricLabel>
-                                                                    <MetricValue>{hasData ? aa.avg_pitch_hz : 'N/A'} <MetricUnit>Hz</MetricUnit></MetricValue>
+                                                                    <MetricValue>{hasData ? aa.avg_pitch_hz ?? 'Unavailable' : 'Unavailable'} <MetricUnit>Hz</MetricUnit></MetricValue>
                                                                 </MetricCard>
                                                                 <MetricCard>
                                                                     <MetricLabel>Pitch Variability</MetricLabel>
@@ -1528,8 +1639,8 @@ function Home() {
                                                                         </EmotionTableHead>
                                                                         <tbody>
                                                                             {emotions.map(({ key, label }) => {
-                                                                                const val = ea[key] ?? 0;
-                                                                                const pct = Math.round(val * 100);
+                                                                                const val = ea[key];
+                                                                                const pct = Number.isFinite(val) ? Math.round(val * 100) : null;
                                                                                 const isDominant = key === dominant;
                                                                                 return (
                                                                                     <EmotionTr key={key} $isDominant={isDominant}>
@@ -1542,7 +1653,7 @@ function Home() {
                                                                                             </EmotionBarTrack>
                                                                                         </EmotionTd>
                                                                                         <EmotionTd $right>
-                                                                                            <EmotionPct $isDominant={isDominant}>{pct}%</EmotionPct>
+                                                                                            <EmotionPct $isDominant={isDominant}>{pct === null ? 'Unavailable' : `${pct}%`}</EmotionPct>
                                                                                         </EmotionTd>
                                                                                         <EmotionTd $right>
                                                                                             {isDominant
@@ -1555,7 +1666,7 @@ function Home() {
                                                                         </tbody>
                                                                     </EmotionTable>
                                                                     <AnalyticsFootnote>
-                                                                        Dominant emotion classified as <strong style={{ color: '#1d2939', textTransform: 'capitalize' }}>{dominant || 'N/A'}</strong> based on MFCC, pitch, energy, and spectral contrast features.
+                                                                        Dominant emotion classified as <strong style={{ color: '#1d2939', textTransform: 'capitalize' }}>{dominant || 'N/A'}</strong>. Current runs use AI estimates; historical method may be unknown.
                                                                     </AnalyticsFootnote>
                                                                     {(ea.reasoning || ea.emotion_reasoning) && (
                                                                         <QuoteCallout>
@@ -1582,16 +1693,16 @@ function Home() {
 
                                                         {analysisResult.speech_clarity ? (() => {
                                                             const sc = analysisResult.speech_clarity;
-                                                            const score = sc.overall_score ?? 0;
+                                                            const score = Number.isFinite(sc.overall_score) ? sc.overall_score : null;
                                                             const scoreColor = score >= 80 ? '#166534' : score >= 60 ? '#92400e' : '#991b1b';
                                                             const scoreBg = score >= 80 ? 'rgba(22,101,52,0.08)' : score >= 60 ? 'rgba(146,64,14,0.08)' : 'rgba(153,27,27,0.08)';
                                                             const scoreBorder = score >= 80 ? 'rgba(22,101,52,0.2)' : score >= 60 ? 'rgba(146,64,14,0.2)' : 'rgba(153,27,27,0.2)';
-                                                            const scoreLabel = score >= 80 ? 'Excellent' : score >= 60 ? 'Satisfactory' : 'Below Standard';
+                                                            const scoreLabel = score === null ? 'Unavailable' : score >= 80 ? 'Excellent' : score >= 60 ? 'Satisfactory' : 'Below Standard';
                                                             return (
                                                                 <>
                                                                     <OverallScoreRow>
                                                                         <OverallScoreBlock $bg={scoreBg} $border={scoreBorder}>
-                                                                            <OverallScoreNum $color={scoreColor}>{score}<OverallScoreDenom>/100</OverallScoreDenom></OverallScoreNum>
+                                                                            <OverallScoreNum $color={scoreColor}>{score ?? 'Unavailable'}<OverallScoreDenom>/100</OverallScoreDenom></OverallScoreNum>
                                                                             <OverallScoreLabel $color={scoreColor}>{scoreLabel}</OverallScoreLabel>
                                                                         </OverallScoreBlock>
                                                                         <OverallScoreBar>
@@ -1626,11 +1737,11 @@ function Home() {
                                                                             </ClarityTr>
                                                                             <ClarityTr>
                                                                                 <ClarityTd><ClarityMetricName>Filler Words</ClarityMetricName></ClarityTd>
-                                                                                <ClarityTd><ClarityMetricVal>{sc.filler_words ?? 0} <ClarityUnit>detected</ClarityUnit></ClarityMetricVal></ClarityTd>
-                                                                                <ClarityTd $wide><ClarityBarTrack><ClarityBarFill $pct={Math.max(0, 100 - (sc.filler_words ?? 0) * 8)} /></ClarityBarTrack></ClarityTd>
+                                                                                <ClarityTd><ClarityMetricVal>{sc.filler_words ?? 'Unavailable'} <ClarityUnit>detected</ClarityUnit></ClarityMetricVal></ClarityTd>
+                                                                                <ClarityTd $wide><ClarityBarTrack><ClarityBarFill $pct={(sc.filler_words == null ? 0 : sc.score_components?.filler ?? Math.max(0, 100 - sc.filler_words * 8))} /></ClarityBarTrack></ClarityTd>
                                                                                 <ClarityTd $right>
-                                                                                    <ClarityRatingTag $rating={(sc.filler_words ?? 0) <= 3 ? 'Ideal' : (sc.filler_words ?? 0) <= 8 ? 'Fast' : 'Too Fast'}>
-                                                                                        {(sc.filler_words ?? 0) <= 3 ? 'Low' : (sc.filler_words ?? 0) <= 8 ? 'Moderate' : 'High'}
+                                                                                    <ClarityRatingTag $rating={sc.filler_words == null ? 'Unavailable' : sc.filler_words <= 3 ? 'Ideal' : (sc.filler_words ?? 0) <= 8 ? 'Fast' : 'Too Fast'}>
+                                                                                        {sc.filler_words == null ? 'Unavailable' : sc.filler_words <= 3 ? 'Low' : (sc.filler_words ?? 0) <= 8 ? 'Moderate' : 'High'}
                                                                                     </ClarityRatingTag>
                                                                                 </ClarityTd>
                                                                             </ClarityTr>
@@ -1639,8 +1750,8 @@ function Home() {
                                                                                 <ClarityTd><ClarityMetricVal>{sc.tone_stability ?? 'N/A'} <ClarityUnit>/ 100</ClarityUnit></ClarityMetricVal></ClarityTd>
                                                                                 <ClarityTd $wide><ClarityBarTrack><ClarityBarFill $pct={sc.tone_stability ?? 0} /></ClarityBarTrack></ClarityTd>
                                                                                 <ClarityTd $right>
-                                                                                    <ClarityRatingTag $rating={(sc.tone_stability ?? 0) >= 75 ? 'Ideal' : (sc.tone_stability ?? 0) >= 50 ? 'Fast' : 'Too Fast'}>
-                                                                                        {(sc.tone_stability ?? 0) >= 75 ? 'Stable' : (sc.tone_stability ?? 0) >= 50 ? 'Variable' : 'Unstable'}
+                                                                                    <ClarityRatingTag $rating={sc.tone_stability == null ? 'Unavailable' : sc.tone_stability >= 75 ? 'Ideal' : (sc.tone_stability ?? 0) >= 50 ? 'Fast' : 'Too Fast'}>
+                                                                                        {sc.tone_stability == null ? 'Unavailable' : sc.tone_stability >= 75 ? 'Stable' : (sc.tone_stability ?? 0) >= 50 ? 'Variable' : 'Unstable'}
                                                                                     </ClarityRatingTag>
                                                                                 </ClarityTd>
                                                                             </ClarityTr>
@@ -1649,15 +1760,15 @@ function Home() {
                                                                                 <ClarityTd><ClarityMetricVal>{sc.audio_quality ?? 'N/A'} <ClarityUnit>/ 100</ClarityUnit></ClarityMetricVal></ClarityTd>
                                                                                 <ClarityTd $wide><ClarityBarTrack><ClarityBarFill $pct={sc.audio_quality ?? 0} /></ClarityBarTrack></ClarityTd>
                                                                                 <ClarityTd $right>
-                                                                                    <ClarityRatingTag $rating={(sc.audio_quality ?? 0) >= 75 ? 'Ideal' : (sc.audio_quality ?? 0) >= 50 ? 'Fast' : 'Too Fast'}>
-                                                                                        {(sc.audio_quality ?? 0) >= 75 ? 'Clear' : (sc.audio_quality ?? 0) >= 50 ? 'Acceptable' : 'Poor'}
+                                                                                    <ClarityRatingTag $rating={sc.audio_quality == null ? 'Unavailable' : sc.audio_quality >= 75 ? 'Ideal' : (sc.audio_quality ?? 0) >= 50 ? 'Fast' : 'Too Fast'}>
+                                                                                        {sc.audio_quality == null ? 'Unavailable' : sc.audio_quality >= 75 ? 'Clear' : (sc.audio_quality ?? 0) >= 50 ? 'Acceptable' : 'Poor'}
                                                                                     </ClarityRatingTag>
                                                                                 </ClarityTd>
                                                                             </ClarityTr>
                                                                         </tbody>
                                                                     </ClarityTable>
                                                                     <AnalyticsFootnote>
-                                                                        Score computed from speech pace, filler word frequency, pitch/energy variance, and spectral signal quality.
+                                                                        Current runs: equal weights for pace, filler frequency, AI estimated tone stability and AI estimated audio quality. Historical scoring methods may be unknown. Missing components make the score unavailable.
                                                                     </AnalyticsFootnote>
                                                                     {(sc.reasoning || sc.clarity_reasoning) && (
                                                                         <QuoteCallout>
@@ -2669,6 +2780,84 @@ const StepText = styled.span`
 
 const ResultsSection = styled.section`
     margin-top: 8px;
+`;
+
+const RunToolbar = styled.section`
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 20px 28px;
+    margin: 20px 0;
+    padding: 20px 0;
+    border-bottom: 1px solid #e4e9f0;
+    @media (max-width: 640px) { gap: 16px; padding: 16px 0; }
+`;
+const RunIntro = styled.div`flex: 1 1 240px; min-width: 0;`;
+const RunTitle = styled.h3`
+    margin: 0;
+    color: #1d2939;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.5;
+`;
+const RunDescription = styled.p`
+    max-width: 420px;
+    margin: 5px 0 0;
+    color: #667085;
+    font-size: 12px;
+    line-height: 1.7;
+`;
+const RunControls = styled.div`
+    display: flex;
+    align-items: flex-end;
+    gap: 12px;
+    max-width: 100%;
+    @media (max-width: 640px) { flex-direction: column; align-items: stretch; width: 100%; }
+`;
+const RunField = styled.div`
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    min-width: 0;
+    label { color: #475467; font-size: 12px; font-weight: 500; line-height: 1.5; }
+    @media (max-width: 640px) { width: 100%; }
+`;
+const RunSelect = styled.select`
+    width: 340px;
+    max-width: 100%;
+    min-width: 0;
+    min-height: 42px;
+    padding: 10px 32px 10px 12px;
+    border: 1px solid #d0d5dd;
+    border-radius: 8px;
+    background-color: #fff;
+    color: #344054;
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 1.5;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    &:focus-visible { outline: 2px solid #2c6edb; outline-offset: 2px; }
+    &:disabled { opacity: .55; cursor: not-allowed; }
+    @media (max-width: 640px) { width: 100%; }
+`;
+const ReanalyzeButton = styled.button`
+    min-height: 42px;
+    padding: 10px 18px;
+    border: 1px solid #d0d5dd;
+    border-radius: 8px;
+    background: #fff;
+    color: #344054;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.5;
+    white-space: nowrap;
+    cursor: pointer;
+    &:hover:not(:disabled) { background: #f9fafb; border-color: #98a2b3; }
+    &:focus-visible { outline: 2px solid #2c6edb; outline-offset: 2px; }
+    &:disabled { opacity: .55; cursor: not-allowed; }
 `;
 
 const ResultsHeader = styled.div`

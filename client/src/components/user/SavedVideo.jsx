@@ -1,3 +1,4 @@
+import { GuidelineBadge } from "./GuidelineReview";
 import React, { useState, useEffect, useMemo } from "react";
 import axios from "axios";
 import styled, { keyframes } from "styled-components";
@@ -56,7 +57,7 @@ const buildVideoUrl = (videoPath) => {
 const formatVideoName = (videoPath) => {
     if (!videoPath) return "Untitled recording";
     const fileName = String(videoPath).split("/").pop() || videoPath;
-    return fileName.replace(/^\d+-/, "");
+    return fileName.replace(/^\d+-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-)?/i, "");
 };
 
 export default function SavedVideos() {
@@ -276,6 +277,7 @@ export default function SavedVideos() {
 
                                         <CardMeta>
                                             <CardTitle>{formatVideoName(video.video_path)}</CardTitle>
+                                            <GuidelineBadge analysis={video.analysis} />
                                             <CardDateRow>
                                                 {formatDate(video.created_at)}
                                                 {video.file_size > 0 && (
@@ -408,7 +410,7 @@ export default function SavedVideos() {
                                                                             </SVEmotionHead>
                                                                             <tbody>
                                                                                 {emotions.map(({ key, label }) => {
-                                                                                    const pct = Math.round((ea[key] ?? 0) * 100);
+                                                                                    const pct = Number.isFinite(ea[key]) ? Math.round(ea[key] * 100) : null;
                                                                                     const isDom = key === dominant;
                                                                                     return (
                                                                                         <SVEmotionTr key={key} $isDominant={isDom}>
@@ -418,7 +420,7 @@ export default function SavedVideos() {
                                                                                                     <SVBarFill $pct={pct} $isDominant={isDom} />
                                                                                                 </SVBarTrack>
                                                                                             </SVTd>
-                                                                                            <SVTd $right><SVPct $isDominant={isDom}>{pct}%</SVPct></SVTd>
+                                                                                            <SVTd $right><SVPct $isDominant={isDom}>{pct === null ? 'Unavailable' : `${pct}%`}</SVPct></SVTd>
                                                                                             <SVTd $right>
                                                                                                 {isDom
                                                                                                     ? <SVDominantTag>Dominant</SVDominantTag>
@@ -431,7 +433,7 @@ export default function SavedVideos() {
                                                                             </tbody>
                                                                         </SVEmotionTable>
                                                                         <SVFootnote>
-                                                                            Dominant emotion: <strong style={{ color: '#1a2332', textTransform: 'capitalize' }}>{dominant || 'N/A'}</strong> · Classified via MFCC, pitch, energy &amp; spectral contrast.
+                                                                            Dominant emotion: <strong style={{ color: '#1a2332', textTransform: 'capitalize' }}>{dominant || 'N/A'}</strong> · Current runs use AI estimates; historical method may be unknown.
                                                                         </SVFootnote>
                                                                     </>
                                                                 );
@@ -447,16 +449,16 @@ export default function SavedVideos() {
 
                                                             {analysis.speech_clarity ? (() => {
                                                                 const sc = analysis.speech_clarity;
-                                                                const score = sc.overall_score ?? 0;
+                                                                const score = Number.isFinite(sc.overall_score) ? sc.overall_score : null;
                                                                 const scoreColor  = '#2c6edb';
                                                                 const scoreBg     = '#eaf2fb';
                                                                 const scoreBorder = '#e4e9f0';
-                                                                const scoreLabel  = score >= 80 ? 'Excellent' : score >= 60 ? 'Satisfactory' : 'Below Standard';
+                                                                const scoreLabel  = score === null ? 'Unavailable' : score >= 80 ? 'Excellent' : score >= 60 ? 'Satisfactory' : 'Below Standard';
                                                                 return (
                                                                     <>
                                                                         <SVScoreRow>
                                                                             <SVScoreBlock $bg={scoreBg} $border={scoreBorder}>
-                                                                                <SVScoreNum $color={scoreColor}>{score}<SVScoreDenom>/100</SVScoreDenom></SVScoreNum>
+                                                                                <SVScoreNum $color={scoreColor}>{score ?? 'Unavailable'}<SVScoreDenom>/100</SVScoreDenom></SVScoreNum>
                                                                                 <SVScoreLabel $color={scoreColor}>{scoreLabel}</SVScoreLabel>
                                                                             </SVScoreBlock>
                                                                             <SVScoreBarWrap>
@@ -494,27 +496,27 @@ export default function SavedVideos() {
                                                                                     },
                                                                                     {
                                                                                         name: 'Filler Words',
-                                                                                        val: `${sc.filler_words ?? 0}`,
+                                                                                        val: `${sc.filler_words ?? 'Unavailable'}`,
                                                                                         unit: 'detected',
-                                                                                        pct: Math.max(0, 100 - (sc.filler_words ?? 0) * 8),
-                                                                                        rating: (sc.filler_words ?? 0) <= 3 ? 'Ideal' : (sc.filler_words ?? 0) <= 8 ? 'Fast' : 'Too Fast',
-                                                                                        ratingLabel: (sc.filler_words ?? 0) <= 3 ? 'Low' : (sc.filler_words ?? 0) <= 8 ? 'Moderate' : 'High',
+                                                                                        pct: (sc.filler_words == null ? 0 : sc.score_components?.filler ?? Math.max(0, 100 - sc.filler_words * 8)),
+                                                                                        rating: sc.filler_words == null ? 'Unavailable' : sc.filler_words <= 3 ? 'Ideal' : (sc.filler_words ?? 0) <= 8 ? 'Fast' : 'Too Fast',
+                                                                                        ratingLabel: sc.filler_words == null ? 'Unavailable' : sc.filler_words <= 3 ? 'Low' : (sc.filler_words ?? 0) <= 8 ? 'Moderate' : 'High',
                                                                                     },
                                                                                     {
                                                                                         name: 'Tone Stability',
                                                                                         val: `${sc.tone_stability ?? 'N/A'}`,
                                                                                         unit: '/ 100',
                                                                                         pct: sc.tone_stability ?? 0,
-                                                                                        rating: (sc.tone_stability ?? 0) >= 75 ? 'Ideal' : (sc.tone_stability ?? 0) >= 50 ? 'Fast' : 'Too Fast',
-                                                                                        ratingLabel: (sc.tone_stability ?? 0) >= 75 ? 'Stable' : (sc.tone_stability ?? 0) >= 50 ? 'Variable' : 'Unstable',
+                                                                                        rating: sc.tone_stability == null ? 'Unavailable' : sc.tone_stability >= 75 ? 'Ideal' : (sc.tone_stability ?? 0) >= 50 ? 'Fast' : 'Too Fast',
+                                                                                        ratingLabel: sc.tone_stability == null ? 'Unavailable' : sc.tone_stability >= 75 ? 'Stable' : (sc.tone_stability ?? 0) >= 50 ? 'Variable' : 'Unstable',
                                                                                     },
                                                                                     {
                                                                                         name: 'Audio Quality',
                                                                                         val: `${sc.audio_quality ?? 'N/A'}`,
                                                                                         unit: '/ 100',
                                                                                         pct: sc.audio_quality ?? 0,
-                                                                                        rating: (sc.audio_quality ?? 0) >= 75 ? 'Ideal' : (sc.audio_quality ?? 0) >= 50 ? 'Fast' : 'Too Fast',
-                                                                                        ratingLabel: (sc.audio_quality ?? 0) >= 75 ? 'Clear' : (sc.audio_quality ?? 0) >= 50 ? 'Acceptable' : 'Poor',
+                                                                                        rating: sc.audio_quality == null ? 'Unavailable' : sc.audio_quality >= 75 ? 'Ideal' : (sc.audio_quality ?? 0) >= 50 ? 'Fast' : 'Too Fast',
+                                                                                        ratingLabel: sc.audio_quality == null ? 'Unavailable' : sc.audio_quality >= 75 ? 'Clear' : (sc.audio_quality ?? 0) >= 50 ? 'Acceptable' : 'Poor',
                                                                                     },
                                                                                 ].map(({ name, val, unit, pct, rating, ratingLabel }) => (
                                                                                     <SVClarityTr key={name}>
@@ -527,7 +529,7 @@ export default function SavedVideos() {
                                                                             </tbody>
                                                                         </SVClarityTable>
                                                                         <SVFootnote>
-                                                                            Score computed from speech pace, filler word frequency, pitch/energy variance, and spectral signal quality.
+                                                                            Current runs: equal weights for pace, filler frequency, AI estimated tone stability and AI estimated audio quality. Historical scoring methods may be unknown. Missing components make the score unavailable.
                                                                         </SVFootnote>
                                                                     </>
                                                                 );

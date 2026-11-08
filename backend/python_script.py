@@ -2,6 +2,8 @@ import os
 import logging
 import sys
 import json
+import re
+from pathlib import Path
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
@@ -46,6 +48,13 @@ def sanitize_media_file(input_path):
                 pix_fmt='yuv420p',
                 vf='scale=trunc(iw/2)*2:trunc(ih/2)*2',
                 movflags='+faststart',
+                preset='medium',
+                crf=18,
+                audio_bitrate='128k',
+                ar=48000,
+                ac=2,
+                threads=1,
+                map_metadata='-1',
                 loglevel='error'
             )
             .overwrite_output()
@@ -54,7 +63,7 @@ def sanitize_media_file(input_path):
         return output_path
     except Exception as e:
         logging.error(f"FFmpeg normalization failed: {e}")
-        return input_path
+        raise RuntimeError("Video preprocessing failed. Check FFmpeg and retry; analysis was not run on a different fallback input.") from e
 
 
 load_dotenv()
@@ -74,7 +83,9 @@ else:
     sys.exit(1)
 
 
-MODEL_ID = "gemini-3.1-flash-lite"
+ANALYSIS_CONFIG = json.loads((Path(__file__).with_name("analysis-config.json")).read_text())
+MODEL_ID = ANALYSIS_CONFIG["model"]
+GENERATION_SETTINGS = ANALYSIS_CONFIG["generation_settings"]
 
 COMMUNITY_STANDARDS_CATEGORIES = (
     "nudity_or_sexual_content",
@@ -89,92 +100,47 @@ COMMUNITY_STANDARDS_CATEGORIES = (
 COMMUNITY_STANDARDS_CLEAR_STATUSES = {"clear", "allowed_educational_context"}
 
 
-def _default_violation_reason(category):
-    """Return a readable fallback when the model omits a category explanation."""
-    labels = {
-        "nudity_or_sexual_content": "The video contains nudity or sexual content that is not suitable for a general audience.",
-        "illegal_drugs_or_drug_use": "The video promotes, normalizes, or depicts illegal drugs or drug use in a disallowed way.",
-        "smoking_vaping_or_tobacco": "The video promotes, normalizes, or depicts smoking, vaping, or tobacco use in a disallowed way.",
-        "violence_gore_or_disturbing_content": "The video contains violence, gore, or disturbing content that is not suitable for a general audience.",
-        "hate_harassment_or_discrimination": "The video contains hate, harassment, or discriminatory content.",
-        "illegal_activities_or_dangerous_behavior": "The video promotes or demonstrates illegal activity or dangerous behavior.",
-        "sexual_content_involving_minors": "The video contains sexual or sexually suggestive content involving minors.",
-        "other_general_audience_unsuitability": "The video contains material that is otherwise unsuitable for children or a general audience.",
-    }
-    return labels.get(category, labels["other_general_audience_unsuitability"])
-
-
 def _normalize_community_standards(value):
-    """Validate the model's moderation result and fail closed on any ambiguity."""
-    rejected = {
-        "decision": "rejected",
-        "safe_for_general_audiences": False,
-        "reason": "The Community Standards evaluation was missing, incomplete, or invalid.",
-        "categories": {},
-        "violations": ["other_general_audience_unsuitability"],
-        "violation_details": [{
-            "category": "other_general_audience_unsuitability",
-            "reason": "The video could not be confidently verified as safe for a general audience.",
-        }],
-    }
+    """Unknown or contradictory evidence is a processing failure, never a violation."""
+    failed = {"state": "review_failed", "reason": "The guideline review was incomplete or invalid. Please retry.",
+              "violations": [], "violation_details": []}
     if not isinstance(value, dict):
-        return rejected
-
+        return failed
     categories = value.get("categories")
     violations = value.get("violations")
-    is_explicitly_safe = (
-        value.get("decision") == "approved"
-        and value.get("safe_for_general_audiences") is True
-        and isinstance(categories, dict)
-        and isinstance(violations, list)
-        and not violations
-        and all(categories.get(category) in COMMUNITY_STANDARDS_CLEAR_STATUSES
-                for category in COMMUNITY_STANDARDS_CATEGORIES)
-    )
-    if not is_explicitly_safe:
-        rejected["reason"] = str(value.get("reason") or rejected["reason"])
-        rejected["categories"] = categories if isinstance(categories, dict) else {}
-        category_violations = [
-            category for category in COMMUNITY_STANDARDS_CATEGORIES
-            if isinstance(categories, dict) and categories.get(category) == "violation"
-        ]
-        listed_violations = [
-            category for category in violations
-            if category in COMMUNITY_STANDARDS_CATEGORIES
-        ] if isinstance(violations, list) else []
-        normalized_violations = list(dict.fromkeys(category_violations + listed_violations))
-        if not normalized_violations:
-            normalized_violations = ["other_general_audience_unsuitability"]
-        rejected["violations"] = normalized_violations
+    if not isinstance(categories, dict) or not isinstance(violations, list):
+        return failed
+    if any(not isinstance(categories.get(c), str) or categories.get(c) not in COMMUNITY_STANDARDS_CLEAR_STATUSES | {"violation"}
+           for c in COMMUNITY_STANDARDS_CATEGORIES):
+        return failed
+    found = [c for c in COMMUNITY_STANDARDS_CATEGORIES if categories[c] == "violation"]
+    if any(not isinstance(c, str) for c in violations) or set(found) != set(violations):
+        return failed
+    if value.get("decision") != ("rejected" if found else "approved") or value.get("safe_for_general_audiences") is not (not found):
+        return failed
+    supplied = value.get("violation_details")
+    if not isinstance(supplied, list) or len(supplied) != len(found):
+        return failed
+    details = []
+    for category in found:
+        matches = [d for d in supplied if isinstance(d, dict) and d.get("category") == category]
+        if len(matches) != 1 or not isinstance(matches[0].get("reason"), str) or not matches[0]["reason"].strip():
+            return failed
+        detail = {"category": category, "reason": matches[0]["reason"].strip()}
+        for key in ("timestamp", "transcript_excerpt"):
+            if isinstance(matches[0].get(key), str) and matches[0][key].strip():
+                detail[key] = matches[0][key].strip()
+        details.append(detail)
+    return {**value, "state": "flagged" if found else "passed", "violation_details": details}
 
-        supplied_details = value.get("violation_details")
-        details_by_category = {}
-        if isinstance(supplied_details, list):
-            for detail in supplied_details:
-                if not isinstance(detail, dict):
-                    continue
-                category = detail.get("category")
-                reason = str(detail.get("reason") or "").strip()
-                if category in normalized_violations and reason:
-                    details_by_category[category] = reason
 
-        rejected["violation_details"] = [
-            {
-                "category": category,
-                "reason": details_by_category.get(category) or _default_violation_reason(category),
-            }
-            for category in normalized_violations
-        ]
-        return rejected
-
-    return {
-        "decision": "approved",
-        "safe_for_general_audiences": True,
-        "reason": str(value.get("reason") or "The advertisement passed the Community Standards Protocol."),
-        "categories": {category: categories[category] for category in COMMUNITY_STANDARDS_CATEGORIES},
-        "violations": [],
-        "violation_details": [],
-    }
+def _provider_text(response):
+    feedback = getattr(response, "prompt_feedback", None)
+    block = str(getattr(feedback, "block_reason", "") or "").upper()
+    reasons = [str(getattr(c, "finish_reason", "")).upper() for c in (getattr(response, "candidates", None) or [])]
+    if (block and "UNSPECIFIED" not in block) or any(any(k in r for k in ("SAFETY", "PROHIBITED", "BLOCKLIST", "RECITATION")) for r in reasons):
+        raise RuntimeError("The AI provider declined to process this video under its safety restrictions. Acknowledging guideline flags cannot override this limitation.")
+    return response.text
 
 
 def _parse_json_object(text):
@@ -189,11 +155,11 @@ def _parse_json_object(text):
 
 COMMUNITY_STANDARDS_PROMPT = """You are the mandatory Community Standards gate for an advertisement video. Inspect the complete video: visuals, on-screen text, spoken/sung words, sound effects, and the overall message and call to action. Do not analyze the ad's effectiveness, audience, transcript, or any other attribute. Return ONLY the JSON decision below.
 
-The advertisement must be safe for both children and adults. Reject content that promotes, encourages, glorifies, normalizes, or instructs viewers to engage in nudity or sexually explicit content; illegal drugs/drug use; smoking, vaping or tobacco use; excessive violence, gore or disturbing content; hate speech, harassment or discrimination; illegal activities or dangerous behavior; or sexual/sexually suggestive content involving minors. Reject anything otherwise unsuitable for children or general audiences. Reject if the video cannot be assessed confidently.
+The advertisement must be safe for both children and adults. Reject content that promotes, encourages, glorifies, normalizes, or instructs viewers to engage in nudity or sexually explicit content; illegal drugs/drug use; smoking, vaping or tobacco use; excessive violence, gore or disturbing content; hate speech, harassment or discrimination; illegal activities or dangerous behavior; or sexual/sexually suggestive content involving minors. Reject anything otherwise unsuitable for children or general audiences. If the video cannot be assessed confidently, return {"state":"review_failed"} rather than inventing a violation.
 
 Educational, awareness, prevention, health, and public-service messages may be allowed when their overall intent is to discourage, warn about, prevent, or help viewers avoid harmful behavior (for example, “Avoid using drugs,” “Stop smoking,” or “Say no to drugs”). That exception never permits graphic imagery, sexual content, harmful instructions, or a message that ultimately promotes or glorifies the behavior. Evaluate context and intent, not keywords alone.
 
-Set approved only when every category is clearly safe. Otherwise reject. Each category must be exactly clear, allowed_educational_context, or violation. List only violation category keys. For every violation, add one matching violation_details entry that explains specifically what was detected and why it violates the guideline. Keep the explanation factual, non-graphic, and understandable to the advertiser. Do not merely repeat the category name.
+Set approved only when every category is clearly safe. Otherwise reject. Each category must be exactly clear, allowed_educational_context, or violation. List only violation category keys. For every violation, add one matching violation_details entry that explains specifically what was detected and why it violates the guideline. Keep the explanation factual, non-graphic, and understandable to the advertiser. Do not merely repeat the category name. Include timestamp and transcript_excerpt fields only when directly supported by the video; omit them when unavailable. Never invent evidence.
 
 {
   "decision": "approved | rejected",
@@ -265,12 +231,65 @@ alone. If the comments don't support a demographic claim, don't make it.
 """
 
 
-def transcribe_and_translate_audio(video_path, comments=None):
+def measure_audio(video_path):
+    """Measure a fixed mono 16 kHz PCM signal. Missing/failed measurements stay null."""
+    fields = ("duration_seconds", "avg_energy_db", "energy_variability", "silence_ratio",
+              "zero_crossing_rate", "spectral_centroid_hz")
+    unavailable = {key: None for key in fields}
+    try:
+        import numpy as np
+        raw, _ = (ffmpeg.input(video_path).output("pipe:", format="f32le", acodec="pcm_f32le", ar=16000, ac=1)
+                  .run(capture_stdout=True, capture_stderr=True))
+        samples = np.frombuffer(raw, dtype="<f4").astype(np.float64)
+        if not samples.size or not np.isfinite(samples).all():
+            return {**unavailable, "status": "unavailable", "reason": "No measurable audio samples"}
+        rms = float(np.sqrt(np.mean(samples ** 2)))
+        duration = samples.size / 16000.0
+        frames = samples[:samples.size // 400 * 400].reshape(-1, 400)
+        if not len(frames):
+            return {**unavailable, "duration_seconds": duration, "status": "unavailable", "reason": "Audio shorter than one 25 ms frame"}
+        frame_rms = np.sqrt(np.mean(frames ** 2, axis=1))
+        frame_db = 20 * np.log10(np.maximum(frame_rms, 1e-12))
+        spectrum = np.abs(np.fft.rfft(frames * np.hanning(400), axis=1))
+        weights = spectrum.sum(axis=1)
+        usable = weights > 1e-10
+        centroid = float(np.mean((spectrum[usable] * np.fft.rfftfreq(400, 1 / 16000)).sum(axis=1) / weights[usable])) if usable.any() else None
+        return {"status": "measured", "duration_seconds": round(duration, 6),
+                "avg_energy_db": round(20 * float(np.log10(rms)), 3) if rms > 0 else None,
+                "energy_variability": round(float(np.std(frame_db)), 3) if rms > 0 else None,
+                "silence_ratio": round(float(np.mean(frame_db < -40)), 6),
+                "zero_crossing_rate": round(float(np.mean(np.signbit(samples[1:]) != np.signbit(samples[:-1]))), 6) if samples.size > 1 else None,
+                "spectral_centroid_hz": round(centroid, 3) if centroid is not None else None,
+                "pcm_sample_rate": 16000, "frame_samples": 400, "silence_threshold_dbfs": -40}
+    except Exception:
+        logging.warning("Audio measurements unavailable; no zero-valued substitutes will be used")
+        return {**unavailable, "status": "unavailable", "reason": "No audio track or PCM measurement failed"}
+
+
+def audio_with_sources(ai, measured):
+    audio = dict(ai)
+    sources = {}
+    measured_fields = ("avg_energy_db", "energy_variability", "silence_ratio", "zero_crossing_rate", "spectral_centroid_hz")
+    for key in measured_fields:
+        audio[key] = measured.get(key)
+        sources[key] = "measured_PCM_16k_mono" if audio[key] is not None else "unavailable"
+    for key in ("avg_pitch_hz", "pitch_variability", "tempo_bpm"):
+        value = ai.get(key)
+        if measured.get("status") != "measured" or measured.get("silence_ratio") == 1 or isinstance(value, bool) or not isinstance(value, (int, float)) or not (0 <= value < 100000 if key == "pitch_variability" else 0 < value < 100000):
+            value = None
+        audio[key] = value
+        sources[key] = "AI_estimate" if value is not None else "unavailable"
+    if measured.get("status") != "measured" or measured.get("silence_ratio") == 1:
+        audio["inferred_tone"] = None
+    sources["inferred_tone"] = "AI_estimate" if audio.get("inferred_tone") else "unavailable"
+    audio["feature_sources"] = sources
+    return audio
+
+
+def transcribe_and_translate_audio(video_path, comments=None, review_only=False, recorded_review=None, generation_settings=None):
     """
-    Upload the MP4 once and get ALL analysis in a single Gemini call:
-    transcript, translation, audio features, emotion, clarity, and summary
-    (including the predicted target audience, informed by comments/feedback
-    when available).
+    Review the video separately, or analyze using a server-recorded review.
+    Provider safety restrictions remain active for every call.
     """
     uploaded_file = None
     working_video_path = video_path
@@ -289,35 +308,21 @@ def transcribe_and_translate_audio(video_path, comments=None):
         with open(working_video_path, "rb") as vf:
             video_bytes = base64.b64encode(vf.read()).decode("utf-8")
 
-        logging.info("Video encoded. Running Community Standards review...")
-        moderation_response = client.models.generate_content(
-            model=MODEL_ID,
-            contents=[
-                types.Part.from_bytes(data=base64.b64decode(video_bytes), mime_type="video/mp4"),
-                COMMUNITY_STANDARDS_PROMPT,
-            ],
-        )
-        if not moderation_response.text:
-            raise RuntimeError("Community Standards review returned no decision")
-
-        community_standards = _normalize_community_standards(
-            _parse_json_object(moderation_response.text)
-        )
-        if community_standards["decision"] != "approved":
-            logging.info("Video rejected by Community Standards; analysis skipped.")
-            return {
-                "original_transcript": "",
-                "translated_transcript": "",
-                "detected_language": "unknown",
-                "language_confidence": 0.0,
-                "community_standards": community_standards,
-                "audio_analysis": {},
-                "emotion_analysis": {},
-                "speech_clarity": {},
-                "summary": {},
-            }
-
-        logging.info("Community Standards approved. Running analysis...")
+        community_standards = recorded_review
+        if community_standards is None:
+            logging.info("Running community guideline review...")
+            moderation_response = client.models.generate_content(
+                model=MODEL_ID,
+                config=types.GenerateContentConfig(**GENERATION_SETTINGS),
+                contents=[types.Part.from_bytes(data=base64.b64decode(video_bytes), mime_type="video/mp4"),
+                          COMMUNITY_STANDARDS_PROMPT],
+            )
+            community_standards = _normalize_community_standards(_parse_json_object(_provider_text(moderation_response)))
+        if review_only or (recorded_review is None and community_standards.get("state") == "flagged"):
+            return {"community_standards": community_standards, "analysis_status": "awaiting_acknowledgement" if community_standards.get("state") == "flagged" else "reviewed"}
+        if community_standards.get("state") not in ("passed", "flagged"):
+            raise RuntimeError("Guideline review failed. Please retry.")
+        logging.info("Running effectiveness and audio analysis...")
 
         comments_block = _build_comments_block(comments)
 
@@ -366,12 +371,12 @@ emotion_reasoning → 2–3 sentences
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECTION 4 — SPEECH CLARITY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-overall_score      → int 0–100 (pace 25% + filler_penalty 25% + tone_stability 25% + audio_quality 25%)
+overall_score      → null (the server calculates the final score from validated components)
 speech_pace_wpm    → int
 pace_rating        → "Too Slow" | "Ideal" | "Fast" | "Too Fast"
-filler_words       → int (count of: um, uh, ah, like, you know, eh, ano, parang used as filler)
-tone_stability     → int 0–100
-audio_quality      → int 0–100
+filler_words       → AI estimated int or null when no speech (count of: um, uh, ah, like, you know, eh, ano, parang used as filler)
+tone_stability     → AI estimated int 0–100 or null when unavailable
+audio_quality      → AI estimated int 0–100 or null when unavailable
 clarity_reasoning  → 2–3 sentences
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -386,40 +391,7 @@ Each "content" string field must be AT LEAST 3 full sentences.
 Each "reason" string under listener_emotions must be AT LEAST 2 sentences.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SECTION 6 — COMMUNITY STANDARDS PROTOCOL (MANDATORY APPROVAL GATE)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Decide whether this advertisement is suitable for BOTH children and adults and safe for a general
-audience. Inspect the complete video: visuals, on-screen text, spoken/sung words, sound effects,
-and the overall message and call to action. Do not rely on a single keyword.
-
-REJECT when the advertisement promotes, encourages, glorifies, normalizes, or instructs viewers
-to engage in any of the following:
-- nudity or sexually explicit content;
-- illegal drugs or drug use;
-- smoking, vaping, or tobacco use;
-- excessive violence, gore, or disturbing content;
-- hate speech, harassment, or discrimination;
-- illegal activities or dangerous behavior; or
-- sexual or sexually suggestive content involving minors.
-
-Also REJECT content that is otherwise unsuitable for children or general audiences. In particular,
-reject when the evidence is unclear or the video cannot be assessed confidently; this gate is
-strict and must fail closed.
-
-CONTEXT EXCEPTION: Allow educational, awareness, prevention, health, or public-service messages
-that mention sensitive topics solely to discourage, warn about, prevent, or help people avoid the
-harmful behavior (for example, “Avoid using drugs,” “Stop smoking,” or “Say no to drugs”). This
-exception does NOT allow graphic imagery, sexual content, instructions for harmful conduct, or a
-message that ultimately promotes/glorifies the behavior. Evaluate the advertisement's overall
-intent and context, not keywords alone.
-
-Set decision to "approved" ONLY if every standard is satisfied and the video is clearly safe for
-general audiences. Otherwise set it to "rejected". Every category must use exactly one status:
-"clear", "allowed_educational_context", or "violation". Include only categories with a
-"violation" in violations.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SECTION 7 — PREDICTED TARGET AUDIENCE
+SECTION 6 — PREDICTED TARGET AUDIENCE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 This is a PREDICTION, not a measured or confirmed fact. Never phrase it as something the
 audience has already experienced — phrase it as who the content is most likely aimed at / would
@@ -452,22 +424,6 @@ RETURN FORMAT — copy this structure exactly, fill all values:
   "translated_transcript": "<spoken/sung content only, speakers labeled>",
   "detected_language": "<language>",
   "language_confidence": <float>,
-  "community_standards": {
-    "decision": "approved | rejected",
-    "safe_for_general_audiences": <true | false>,
-    "reason": "<concise context-aware explanation of the overall decision>",
-    "categories": {
-      "nudity_or_sexual_content": "clear | allowed_educational_context | violation",
-      "illegal_drugs_or_drug_use": "clear | allowed_educational_context | violation",
-      "smoking_vaping_or_tobacco": "clear | allowed_educational_context | violation",
-      "violence_gore_or_disturbing_content": "clear | allowed_educational_context | violation",
-      "hate_harassment_or_discrimination": "clear | allowed_educational_context | violation",
-      "illegal_activities_or_dangerous_behavior": "clear | allowed_educational_context | violation",
-      "sexual_content_involving_minors": "clear | allowed_educational_context | violation",
-      "other_general_audience_unsuitability": "clear | allowed_educational_context | violation"
-    },
-    "violations": ["<only the category keys whose status is violation>"]
-  },
   "audio_analysis": {
     "avg_pitch_hz": <float>,
     "pitch_variability": <float>,
@@ -490,7 +446,7 @@ RETURN FORMAT — copy this structure exactly, fill all values:
     "reasoning": "<string>"
   },
   "speech_clarity": {
-    "overall_score": <int>,
+    "overall_score": null,
     "speech_pace_wpm": <int>,
     "pace_rating": "<string>",
     "filler_words": <int>,
@@ -547,13 +503,14 @@ RETURN FORMAT — copy this structure exactly, fill all values:
 
         response = client.models.generate_content(
             model=MODEL_ID,
+            config=types.GenerateContentConfig(**(generation_settings or GENERATION_SETTINGS)),
             contents=[
                 types.Part.from_bytes(data=base64.b64decode(video_bytes), mime_type="video/mp4"),
                 prompt
             ]
         )
 
-        if not response.text:
+        if not _provider_text(response):
             reason_str = "unknown"
             if response.candidates:
                 cand = response.candidates[0]
@@ -578,8 +535,14 @@ RETURN FORMAT — copy this structure exactly, fill all values:
             logging.error(f"Returned empty response.text. Reason: {reason_str}")
             raise RuntimeError(f"Returned no analyzable content for this video ({reason_str})")
 
-        result = _parse_json_object(response.text)
+        result = _parse_json_object(_provider_text(response))
+        if not all(isinstance(result.get(k), dict) and result[k] for k in ("audio_analysis", "summary", "speech_clarity", "emotion_analysis")):
+            raise RuntimeError("Analysis response was incomplete. Please retry.")
 
+        if not all(isinstance(result.get(key), str) for key in ("original_transcript", "translated_transcript", "detected_language")):
+            raise RuntimeError("Transcript response was incomplete. Please retry.")
+        if not isinstance(result.get("summary", {}).get("summary", {}).get("content"), str) or not result["summary"]["summary"]["content"].strip():
+            raise RuntimeError("Summary response was incomplete. Please retry.")
         original   = result.get("original_transcript", "").strip()
         translated = result.get("translated_transcript", "").strip()
         detected   = result.get("detected_language", "unknown")
@@ -591,14 +554,24 @@ RETURN FORMAT — copy this structure exactly, fill all values:
         elif not translated:
             translated = original
 
+        measured_audio = measure_audio(working_video_path)
+        # Speaker labels and non-spoken stage directions must not count as words.
+        spoken = re.sub(r"(?m)^[^:\n]{1,60}:\s*", "", original)
+        spoken = re.sub(r"\[[^\]]*\]", "", spoken)
+        word_count = len(re.findall(r"[^\W_]+(?:['’][^\W_]+)*", spoken, flags=re.UNICODE))
+        if measured_audio.get("silence_ratio") == 1:
+            word_count = 0
         logging.info(f"Analysis complete. Language: {detected}")
         return {
             "original_transcript":   original,
             "translated_transcript": translated,
             "detected_language":     detected,
-            "language_confidence":   result.get("language_confidence", 1.0),
+            "language_confidence":   result.get("language_confidence") if isinstance(result.get("language_confidence"), (int, float)) and not isinstance(result.get("language_confidence"), bool) and 0 <= result["language_confidence"] <= 1 else None,
             "community_standards":   community_standards,
-            "audio_analysis":        result.get("audio_analysis", {}),
+            "audio_analysis":        audio_with_sources(result.get("audio_analysis", {}), measured_audio),
+            "measured_audio":        measured_audio,
+            "provider_model_version": str(getattr(response, "model_version", "") or "unknown"),
+            "transcript_word_count": word_count,
             "emotion_analysis":      result.get("emotion_analysis", {}),
             "speech_clarity":        result.get("speech_clarity", {}),
             "summary":               result.get("summary", {}),
@@ -744,7 +717,18 @@ def validate_and_process_prompt(user_prompt, analysis_result):
 
 if __name__ == "__main__":
 
-    if len(sys.argv) == 3 and sys.argv[1] == "--prompt":
+    if len(sys.argv) == 3 and sys.argv[1] == "--video-job":
+        try:
+            job = json.load(sys.stdin)
+            result = transcribe_and_translate_audio(sys.argv[2], comments=job.get("comments"),
+                review_only=job["mode"] == "review", recorded_review=job.get("review"), generation_settings=job.get("generation_settings"))
+            if "original_transcript" in result:
+                result["transcript"] = result.pop("original_transcript")
+            _output_result(result)
+        except Exception as e:
+            _output_result({"error": str(e), "code": "PROVIDER_LIMITATION" if "provider declined" in str(e) else "PROCESSING_ERROR"})
+
+    elif len(sys.argv) == 3 and sys.argv[1] == "--prompt":
         try:
             user_prompt     = input().strip()
             analysis_result = json.loads(sys.argv[2])
@@ -767,17 +751,9 @@ if __name__ == "__main__":
         comments_arg = sys.argv[2] if len(sys.argv) == 3 else None
         try:
             result = transcribe_and_translate_audio(video_path, comments=comments_arg)
-            _output_result({
-                "transcript":            result["original_transcript"],
-                "translated_transcript": result["translated_transcript"],
-                "detected_language":     result["detected_language"],
-                "language_confidence":   result["language_confidence"],
-                "community_standards":   result["community_standards"],
-                "audio_analysis":        result.get("audio_analysis", {}),
-                "emotion_analysis":      result.get("emotion_analysis", {}),
-                "speech_clarity":        result.get("speech_clarity", {}),
-                "summary":               result.get("summary", {}),
-            })
+            if "original_transcript" in result:
+                result["transcript"] = result.pop("original_transcript")
+            _output_result(result)
 
         except Exception as e:
             logging.error(f"Fatal error: {e}")

@@ -1,0 +1,9 @@
+{
+  "identity_version": "sha256-analysis-v2",
+  "model": "gemini-3.1-flash-lite",
+  "prompt_version": "effectiveness-v2",
+  "guideline_version": "community-guidelines-v1",
+  "preprocessing_version": "h264-crf18-aac128k-48khz-mono-pcm16k-v2",
+  "scoring_version": "clarity-components-v2",
+  "generation_settings": { "temperature": 0, "top_p": 1, "candidate_count": 1, "response_mime_type": "application/json" }
+}

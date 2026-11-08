@@ -10,6 +10,9 @@ import bcrypt from "bcryptjs";
 import trainRouter from "./train_routes.js";
 import jwt from "jsonwebtoken";
 import cookieParser from "cookie-parser";
+import { randomUUID } from "crypto";
+import { createReviewFlow } from "./review-flow.js";
+import { createVideoProcessor } from "./video-processor.js";
 
 const app  = express();
 const port = process.env.PORT;
@@ -148,15 +151,11 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // ─── Multer ───────────────────────────────────────────────────────────────────
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => { cb(null, "uploads/"); },
-    filename:    (req, file, cb) => { cb(null, `${Date.now()}-${file.originalname}`); },
+    destination: (req, file, cb) => { cb(null, path.join(__dirname, "uploads")); },
+    filename:    (req, file, cb) => { cb(null, `${Date.now()}-${randomUUID()}-${path.basename(file.originalname)}`); },
 });
 const upload = multer({ storage });
 
-// A video is eligible to be saved only after this server process has evaluated
-// the exact uploaded file. This intentionally fails closed after a restart or
-// an incomplete/unknown moderation response.
-const communityStandardsDecisions = new Map();
 const UPLOADS_DIRECTORY = path.resolve(__dirname, "uploads");
 
 function getUploadedVideoPath(videoPath) {
@@ -171,77 +170,6 @@ function getUploadedVideoPath(videoPath) {
         absolutePath,
         // Use one canonical key regardless of Windows/POSIX path separators.
         key: path.relative(__dirname, absolutePath).split(path.sep).join("/"),
-    };
-}
-
-function recordCommunityStandardsDecision(videoKey, result) {
-    const moderation = result?.community_standards;
-    communityStandardsDecisions.set(videoKey, {
-        approved: moderation?.decision === "approved" && moderation?.safe_for_general_audiences === true,
-        moderation,
-        evaluatedAt: Date.now(),
-    });
-}
-
-function getCommunityStandardsRejection(result) {
-    const moderation = result?.community_standards;
-    if (moderation?.decision === "approved" && moderation?.safe_for_general_audiences === true) {
-        return null;
-    }
-
-    const categoryLabels = {
-        nudity_or_sexual_content: "Nudity or sexual content",
-        illegal_drugs_or_drug_use: "Illegal drugs or drug use",
-        smoking_vaping_or_tobacco: "Smoking, vaping, or tobacco",
-        violence_gore_or_disturbing_content: "Violence, gore, or disturbing content",
-        hate_harassment_or_discrimination: "Hate, harassment, or discrimination",
-        illegal_activities_or_dangerous_behavior: "Illegal activities or dangerous behavior",
-        sexual_content_involving_minors: "Sexual content involving minors",
-        other_general_audience_unsuitability: "Other general-audience unsuitability",
-    };
-    const violations = Array.isArray(moderation?.violations)
-        ? moderation.violations.filter((category) => categoryLabels[category])
-        : [];
-    const suppliedDetails = Array.isArray(moderation?.violation_details)
-        ? moderation.violation_details
-        : [];
-    const detailByCategory = new Map(
-        suppliedDetails
-            .filter((detail) => detail && categoryLabels[detail.category] && typeof detail.reason === "string")
-            .map((detail) => [detail.category, detail.reason.trim()])
-    );
-    const violationDetails = (violations.length ? violations : ["other_general_audience_unsuitability"])
-        .map((category) => ({
-            category,
-            label: categoryLabels[category],
-            reason: detailByCategory.get(category) || (
-                category === "other_general_audience_unsuitability"
-                    ? String(moderation?.reason || "The video could not be confidently verified as safe for a general audience.")
-                    : `The video violates the ${categoryLabels[category].toLowerCase()} guideline.`
-            ),
-        }));
-    const overallReason = String(
-        moderation?.reason || "This video does not meet the Community Standards for a general audience."
-    ).trim();
-    const detailedReasons = violationDetails
-        .map((detail, index) => `${index + 1}. ${detail.label}: ${detail.reason}`)
-        .join("\n");
-    const message = [
-        "Advertisement rejected. The video was not analyzed or saved.",
-        overallReason,
-        detailedReasons && `Guideline violation(s):\n${detailedReasons}`,
-    ].filter(Boolean).join("\n\n");
-
-    return {
-        message,
-        community_standards: {
-            ...(moderation && typeof moderation === "object" ? moderation : {}),
-            decision: "rejected",
-            safe_for_general_audiences: false,
-            reason: overallReason,
-            violations: violationDetails.map((detail) => detail.category),
-            violation_details: violationDetails,
-        },
     };
 }
 
@@ -285,148 +213,63 @@ function removeIncomeSegment(value) {
 
 function spawnPython(args) {
     const isWin = process.platform === "win32";
-    const cmd = isWin ? "py" : "python3";
+    const cmd = process.env.PYTHON_EXECUTABLE || (isWin ? "py" : "python3");
     return spawn(cmd, ["-u", ...args], {
         shell: false,
         cwd: path.dirname(fileURLToPath(import.meta.url)),
     });
 }
 
-// ─── Upload video ─────────────────────────────────────────────────────────────
-app.post("/upload-video", upload.single("video"), (req, res) => {
+const query = (sql, values = []) => new Promise((resolve, reject) =>
+    db.query(sql, values, (err, rows) => err ? reject(err) : resolve(rows)));
+const reviewFlow = createReviewFlow({ query, run: (file, job, progress) => new Promise((resolve, reject) => {
+    const worker = spawnPython(["./python_script.py", "--video-job", file]);
+    let output = "";
+    const timer = setTimeout(() => { worker.kill(); reject(Object.assign(new Error("Processing timed out. Please retry."), { code: "PROCESSING_ERROR" })); }, 10 * 60 * 1000);
+    worker.on('error', err => { clearTimeout(timer); reject(err); });
+    worker.stdin.on('error', () => {});
+    worker.stdin.end(JSON.stringify(job));
+    worker.stdout.on('data', data => { output += data.toString(); });
+    worker.stderr.on('data', data => {
+        for (const line of data.toString().split('\n')) {
+            if (line.includes(' - INFO - ')) progress(line.split(' - INFO - ')[1]);
+        }
+    });
+    worker.on('close', () => {
+        clearTimeout(timer);
+        try {
+            const result = removeIncomeSegment(parsePythonOutput(output));
+            if (result.error) return reject(Object.assign(new Error(result.error), { code: result.code, status: 502 }));
+            resolve(result);
+        } catch { reject(Object.assign(new Error("Invalid processing response. Please retry."), { status: 502, code: "PROCESSING_ERROR" })); }
+    });
+}) });
+
+app.post("/upload-video", verifyToken, upload.single("video"), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-    res.json({
-        success:   true,
-        videoPath: req.file.path,
-        filename:  req.file.filename,
-    });
-});
-
-// ─── Process video (non-streaming) ───────────────────────────────────────────
-app.post("/process-video", (req, res) => {
-    const { videoPath, comments } = req.body;
-    if (!videoPath) return res.status(400).json({ error: "Video path is required" });
-    const uploadedVideo = getUploadedVideoPath(videoPath);
-    if (!uploadedVideo) return res.status(400).json({ error: "Invalid uploaded video path" });
-
-    // comments (optional) — array of strings/objects with viewer feedback for this video.
-    // Forwarded as-is to python_script.py, which folds it into the Gemini prompt as
-    // additional evidence for the predicted target audience.
-    const args = ["./python_script.py", uploadedVideo.absolutePath];
-    if (comments && (Array.isArray(comments) ? comments.length : true)) {
-        args.push(JSON.stringify(comments));
+    try {
+        const file = getUploadedVideoPath(`uploads/${req.file.filename}`);
+        const reviewId = await reviewFlow.register(req.acc_id, file);
+        res.json({ success: true, videoPath: file.key, filename: req.file.filename, reviewId });
+    } catch (err) {
+        console.error('Upload registration failed:', err.message);
+        res.status(500).json({ error: "Could not register the upload. Check the database migration and retry." });
     }
-
-    const pythonProcess = spawnPython(args);
-    let pythonOutput    = "";
-
-    pythonProcess.stdout.on("data", (data) => { pythonOutput += data.toString(); });
-    pythonProcess.stderr.on("data", (data) => { console.error(`[Python stderr]: ${data}`); });
-
-    pythonProcess.on("close", () => {
-        try {
-            const parsed = removeIncomeSegment(parsePythonOutput(pythonOutput));
-            if (parsed.error) return res.status(500).json({ error: parsed.error });
-            recordCommunityStandardsDecision(uploadedVideo.key, parsed);
-            const rejection = getCommunityStandardsRejection(parsed);
-            if (rejection) return res.status(422).json({ error: rejection.message, ...rejection });
-            return res.json(parsed);
-        } catch (err) {
-            console.error("Failed to parse Python output:", err.message);
-            console.error("Raw output snippet:", pythonOutput.substring(0, 500));
-            return res.status(500).json({ error: "Invalid response from Python script" });
-        }
-    });
 });
 
-// ─── Process video — SSE streaming ───────────────────────────────────────────
-// GET /process-video-stream?videoPath=uploads/xxx.mp4
-app.get("/process-video-stream", (req, res) => {
-    const { videoPath, comments } = req.query;
-    if (!videoPath) { res.status(400).end(); return; }
-    const uploadedVideo = getUploadedVideoPath(videoPath);
-    if (!uploadedVideo) { res.status(400).json({ error: "Invalid uploaded video path" }); return; }
-    // comments (optional, GET query param) — a JSON-encoded array of comment strings/objects,
-    // already stringified by the client. Passed straight through to python_script.py.
+const processVideo = createVideoProcessor(reviewFlow, getUploadedVideoPath);
+app.post('/process-video', verifyToken, (req, res) => processVideo(req, res, false));
+// SSE uses credentialed EventSource; acknowledgements are only accepted by POST.
+app.get('/process-video-stream', verifyToken, (req, res) => {
+    if (req.query.action && req.query.action !== 'review') return res.status(405).json({ error: 'Use POST to acknowledge or cancel a review.' });
+    return processVideo(req, res, true);
+});
 
-    res.setHeader("Content-Type",      "text/event-stream");
-    res.setHeader("Cache-Control",     "no-cache");
-    res.setHeader("Connection",        "keep-alive");
-    res.setHeader("X-Accel-Buffering", "no");
-    res.flushHeaders();
-
-    const send = (event, data) =>
-        res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-
-    // Map Python INFO log substrings → friendly progress labels (null = suppress)
-    const STEP_MAP = [
-        { match: "audio extracted",                   label: "Audio extracted and saved"    },
-        { match: "transcription completed",           label: "Transcription completed"       },
-        { match: "translated",                        label: "Translation completed"         },
-        { match: "audio feature analysis",            label: "Audio analysis completed"      },
-        { match: "voice emotion detection completed", label: "Emotion detection completed"   },
-        { match: "speech clarity score computed",     label: "Speech clarity score computed" },
-        { match: "summary generated",                 label: "Summary generated"             },
-        { match: "gemini api configured",             label: null },
-        { match: "api key",                           label: null },
-        { match: "configured successfully",           label: null },
-    ];
-
-    const streamArgs = ["./python_script.py", uploadedVideo.absolutePath];
-    if (comments) streamArgs.push(comments);
-
-    const pythonProcess = spawnPython(streamArgs);
-    let pythonOutput = "";
-    let stderrBuf    = "";
-
-    pythonProcess.stdout.on("data", (d) => { pythonOutput += d.toString(); });
-
-    pythonProcess.stderr.on("data", (d) => {
-        stderrBuf += d.toString();
-        const lines = stderrBuf.split("\n");
-        stderrBuf   = lines.pop(); // keep incomplete last line in buffer
-
-        for (const line of lines) {
-            if (!line.includes(" - INFO - ")) continue;
-            const msg   = line.split(" - INFO - ")[1]?.trim() || "";
-            if (!msg) continue;
-            const lower   = msg.toLowerCase();
-            const matched = STEP_MAP.find(s => lower.includes(s.match));
-            if (matched) {
-                if (matched.label !== null) send("progress", { message: matched.label });
-            } else {
-                send("progress", { message: msg });
-            }
-        }
-    });
-
-    pythonProcess.on("close", (code) => {
-        if (!pythonOutput.trim()) {
-            console.error(`Python exited with code ${code} and produced no stdout.`);
-            console.error(`Stderr: ${stderrBuf}`);
-            send("error", { message: "Python script produced no output. Check your API key or environment setup." });
-            res.end();
-            return;
-        }
-        try {
-            const parsed = removeIncomeSegment(parsePythonOutput(pythonOutput));
-            if (parsed.error) {
-                send("error", { message: parsed.error });
-            } else {
-                recordCommunityStandardsDecision(uploadedVideo.key, parsed);
-                const rejection = getCommunityStandardsRejection(parsed);
-                if (rejection) send("error", rejection);
-                else send("result", { success: true, data: parsed });
-            }
-        } catch (err) {
-            console.error("SSE parse error:", err.message);
-            console.error("Raw stdout snippet:", pythonOutput.substring(0, 500));
-            send("error", { message: "Failed to parse analysis result. Please try again." });
-        }
-        res.end();
-    });
-
-    req.on("close", () => pythonProcess.kill());
+app.get('/analysis-runs', verifyToken, async (req, res) => {
+    const file = getUploadedVideoPath(req.query.videoPath);
+    if (!file) return res.status(400).json({ error: 'Invalid uploaded video path' });
+    try { res.json(await reviewFlow.listRuns(req.acc_id, file)); }
+    catch (err) { res.status(err.status || 500).json({ error: err.message }); }
 });
 
 // ─── Process prompt / chat ────────────────────────────────────────────────────
@@ -696,21 +539,22 @@ app.put("/user/:acc_id/profile", verifyToken, (req, res) => {
 
 
 // ─── Videos: save ─────────────────────────────────────────────────────────────
-app.post("/save-video", verifyToken, (req, res) => {
-    const { video_path, summary, analysis, extra_results, file_size } = req.body;
-    if (!video_path || !analysis)
-        return res.status(400).json({ error: "video_path and analysis are required" });
-
-    const uploadedVideo = getUploadedVideoPath(video_path);
-    if (!uploadedVideo) return res.status(400).json({ error: "Invalid uploaded video path" });
-
-    const moderationDecision = communityStandardsDecisions.get(uploadedVideo.key);
-    if (!moderationDecision?.approved) {
-        const rejection = getCommunityStandardsRejection({
-            community_standards: moderationDecision?.moderation,
-        });
-        return res.status(422).json({ error: rejection.message, ...rejection });
-    }
+app.post("/save-video", verifyToken, async (req, res) => {
+    const { video_path } = req.body;
+    let analysis, file_size;
+    if (!video_path) return res.status(400).json({ error: "video_path is required" });
+    try {
+        const file = getUploadedVideoPath(video_path);
+        if (!file) return res.status(400).json({ error: "Invalid uploaded video path" });
+        const saved = await reviewFlow.savedResult(req.acc_id, file, req.body.run_id);
+        analysis = saved.result; file_size = saved.size;
+    } catch (err) { return res.status(err.status || 500).json({ error: err.message }); }
+    const summary = analysis?.summary?.summary?.content || "";
+    const extra_results = {
+        tone: analysis.audio_analysis?.inferred_tone || null,
+        speaking_rate: analysis.audio_analysis?.estimated_speaking_rate_wpm || null,
+        audience_emotion: analysis.audience_emotion || null,
+    };
 
     const MAX_STORAGE = 5 * 1024 * 1024 * 1024;
 
