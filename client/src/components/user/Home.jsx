@@ -405,6 +405,7 @@ function Home() {
         }
 
         processingRef.current = true;
+        let processingStartedAt = performance.now();
         setLoading(true);
         setProcessingOutcome('processing');
         setErrorCode('');
@@ -415,6 +416,7 @@ function Home() {
         try {
             let videoPath = uploadedVideoPath;
             if (!videoPath) {
+                setProgressLogs(prev => [...prev, 'Uploading video…']);
                 const formData = new FormData();
                 formData.append("video", videoFile);
                 const uploadRes = await fetch(`${ApiUrl.apiURL}/upload-video`, {
@@ -425,6 +427,9 @@ function Home() {
                 videoPath = uploadData.videoPath;
                 setUploadedVideoPath(videoPath);
                 setUploadedVideoName(videoFile.name);
+                setProgressLogs(prev => [...prev, 'Video upload complete.']);
+            } else {
+                setProgressLogs(prev => [...prev, 'Using the video already uploaded.']);
             }
 
             const comments = analysisComments.split('\n').map(text => text.trim()).filter(Boolean);
@@ -436,10 +441,6 @@ function Home() {
                 const params = new URLSearchParams({ videoPath, comments: JSON.stringify(request.comments), forceFresh: String(request.forceFresh), requestId: request.requestId });
                 const url = `${ApiUrl.apiURL}/process-video-stream?${params}`;
                 const es = new EventSource(url, { withCredentials: true });
-
-                es.onopen = () => {
-                    console.log("SSE connection opened");
-                };
 
                 es.addEventListener("progress", (e) => {
                     const { message } = JSON.parse(e.data);
@@ -455,8 +456,6 @@ function Home() {
                     es.close();
                     const { success, data } = JSON.parse(e.data);
                     if (success && data) {
-                        // console.log("FULL RESULT:", JSON.stringify(data, null, 2));
-                        setAnalysisResult(data);
                         resolve(data);
                     } else {
                         reject(new Error("Processing failed"));
@@ -464,8 +463,8 @@ function Home() {
                 });
 
                 es.addEventListener("error", (e) => {
-                    console.log("SSE error event:", e.data);
                     es.close();
+                    if (!e.data) { reject(new Error("Connection lost during processing. Please try again.")); return; }
                     try {
                         const payload = JSON.parse(e.data);
                         reject(Object.assign(new Error(payload.message), { code: payload.code, processingPayload: payload }));
@@ -473,15 +472,9 @@ function Home() {
                         reject(new Error("Processing error. Please try again."));
                     }
                 });
-
-                es.onerror = (e) => {
-                    console.error("SSE connection error:", e);
-                    console.log("SSE readyState:", es.readyState);
-                    es.close();
-                    reject(new Error("Connection lost during processing."));
-                };
             });
 
+            let completedResult = reviewed;
             if (reviewed?.analysis_status === 'awaiting_acknowledgement') {
                 // SweetAlert text renders model output as text, never executable HTML.
                 setProcessingOutcome('awaiting_acknowledgement');
@@ -500,6 +493,7 @@ function Home() {
                     didOpen: () => { const el = Swal.getHtmlContainer(); if (el) el.style.whiteSpace = 'pre-wrap'; },
                 });
                 if (choice.isConfirmed) {
+                    processingStartedAt = performance.now();
                     setProcessingOutcome('processing');
                     setProgressLogs(prev => [...prev, 'Proceed selected. Requesting effectiveness and audio analysis…']);
                 }
@@ -513,16 +507,28 @@ function Home() {
                     setProgressLogs(prev => [...prev, 'Processing cancelled.']);
                     return;
                 }
-                setAnalysisResult(data);
+                completedResult = data;
+                if (data.guideline_acknowledged_at) setProgressLogs(prev => [...prev, 'Guideline acknowledgement confirmed by the server.']);
+                setProgressLogs(prev => [...prev, data.analysis_metadata?.execution_kind === 'reused'
+                    ? 'Matching analysis processed. Existing transcript and scores retained.' : 'Effectiveness and audio analysis finished.', 'Results ready.']);
             }
 
+            // Presentation minimum only: no extra AI calls or simulated analysis stages.
+            const presentationWait = Math.max(0, 3000 - (performance.now() - processingStartedAt));
+            if (presentationWait > 0) {
+                setProcessingOutcome('presenting');
+                await new Promise(resolve => setTimeout(resolve, presentationWait));
+            }
+            setAnalysisResult(completedResult);
             pendingRunRef.current = null;
             setProcessingOutcome('completed');
             setReviewNotice(null);
             Swal.fire({
                 icon: 'success',
-                title: 'Analysis Complete!',
-                text: 'Your video has been analyzed successfully.',
+                title: 'Processing complete',
+                text: completedResult?.analysis_metadata?.execution_kind === 'reused'
+                    ? 'Your video was checked and the matching analysis was used. Results are unchanged.'
+                    : 'Your video analysis results are ready.',
                 confirmButtonColor: '#0284c7',
                 timer: 2000
             });
@@ -532,13 +538,15 @@ function Home() {
             const code = payload.code || err.code || 'PROCESSING_ERROR';
             const limited = code === 'PROVIDER_LIMITATION';
             // A terminal failed run needs a new request ID; network/busy retries keep their ID.
-            if (['RUN_FAILED_RETRY', 'PROVIDER_LIMITATION', 'PROCESSING_ERROR', 'REVIEW_FAILED'].includes(code)) pendingRunRef.current = null;
+            if (['RUN_FAILED_RETRY', 'PROVIDER_LIMITATION', 'INVALID_MODEL_RESPONSE', 'PROCESSING_ERROR', 'REVIEW_FAILED', 'PROCESSING_CANCELLED'].includes(code)) pendingRunRef.current = null;
             if (payload.community_standards?.state === 'flagged') setReviewNotice(payload);
             const message = limited
                 ? payload.guideline_acknowledged_at
-                    ? 'Your acknowledgement was saved and analysis was requested. The AI provider declined to process this video under its content restrictions. The video is still uploaded; the same guideline review will not need another acknowledgement.'
+                    ? 'Your acknowledgement was saved and analysis was requested. The AI provider declined to process this video under its content restrictions. The video is still uploaded. A new analysis attempt will ask you to confirm the guideline flags again.'
                     : 'The AI provider declined to review this video under its content restrictions. No analysis was completed.'
-                : payload.error || err.message;
+                : code === 'INVALID_MODEL_RESPONSE'
+                    ? `${payload.guideline_acknowledged_at ? 'Your acknowledgement is saved. ' : ''}The AI returned a response that could not be read. Click Analyze Video to try again without uploading the video again.`
+                    : payload.error || err.message;
             setProcessingOutcome(limited ? 'provider_limited' : 'failed');
             setErrorCode(code);
             setError(message);
@@ -946,7 +954,7 @@ function Home() {
 
                     {reviewNotice && !analysisResult && <GuidelineFindings analysis={reviewNotice} />}
 
-                    {(isStreaming || progressLogs.length > 0) && !analysisResult && (
+                    {(isStreaming || progressLogs.length > 0) && (
                         <ProgressPanel>
                             {isStreaming && <ProgressBarIndeterminate />}
                             <ProgressHeader>
@@ -954,7 +962,8 @@ function Home() {
                                     {isStreaming ? (
                                         <>
                                             <SpinIcon><FiLoader size={16} /></SpinIcon>
-                                            {processingOutcome === 'awaiting_acknowledgement' ? 'Waiting for your choice…' : 'Processing your video…'}
+                                            {processingOutcome === 'awaiting_acknowledgement' ? 'Waiting for your choice…'
+                                                : processingOutcome === 'presenting' ? 'Preparing results…' : 'Processing your video…'}
                                         </>
                                     ) : processingOutcome === 'completed' ? 'Analysis complete'
                                         : processingOutcome === 'provider_limited' ? 'Analysis stopped by the AI provider'

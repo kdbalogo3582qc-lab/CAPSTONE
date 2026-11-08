@@ -1,7 +1,7 @@
 {
   "identity_version": "sha256-analysis-v2",
   "model": "gemini-3.1-flash-lite",
-  "prompt_version": "effectiveness-v2",
+  "prompt_version": "effectiveness-v3",
   "guideline_version": "community-guidelines-v2",
   "preprocessing_version": "h264-crf18-aac128k-48khz-mono-pcm16k-v2",
   "scoring_version": "clarity-components-v2",

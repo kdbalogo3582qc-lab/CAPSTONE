@@ -137,6 +137,10 @@ def _normalize_community_standards(value):
     return {**value, "state": "flagged" if found else "passed", "violation_details": details}
 
 
+class ModelResponseFormatError(RuntimeError):
+    """A retryable provider response-format error, not a guideline violation."""
+
+
 class ProviderLimitationError(RuntimeError):
     def __init__(self, reason):
         super().__init__("The AI provider could not analyze this video because of its content restrictions. Your guideline acknowledgement does not override the provider's restrictions.")
@@ -156,6 +160,8 @@ def _provider_text(response):
         reason = enum_name(getattr(candidate, "finish_reason", None))
         if reason in restricted or any(getattr(rating, "blocked", False) for rating in (getattr(candidate, "safety_ratings", None) or [])):
             raise ProviderLimitationError(reason or "SAFETY")
+        if reason == "MAX_TOKENS":
+            raise ModelResponseFormatError("The AI response was cut short. Please try again; your video is still uploaded.")
     return response.text
 
 
@@ -180,14 +186,74 @@ def _review_timestamp(value, duration=None):
     return {"timestamp": display, "timestamp_seconds": seconds, "timestamp_source": "ai_video_review"}
 
 
+def _escape_json_string_whitespace(value):
+    """Losslessly escape raw LF/CR/tab inside strings; never invent or close JSON."""
+    output = []
+    in_string = False
+    escaped = False
+    for char in value:
+        if in_string:
+            if ord(char) < 32:
+                if escaped or char not in ("\n", "\r", "\t"):
+                    raise ModelResponseFormatError("The AI provider returned an invalid response. Please try again.")
+                output.append(json.dumps(char)[1:-1])
+                continue
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        output.append(char)
+    return "".join(output)
+
+
 def _parse_json_object(text):
-    """Extract one JSON object from a model response."""
-    json_text = (text or "").strip().replace("```json", "").replace("```", "").strip()
-    start = json_text.find("{")
-    end = json_text.rfind("}") + 1
-    if start == -1 or end <= start:
-        raise ValueError("Model returned no valid JSON")
-    return json.loads(json_text[start:end])
+    """Read one complete object, repairing only unescaped string whitespace."""
+    message = "The AI provider returned an incomplete or unreadable response. Please try again; your video is still uploaded."
+    if not isinstance(text, str) or not text.strip():
+        raise ModelResponseFormatError(message)
+    payload = text.strip().lstrip("\ufeff")
+    if payload.startswith("```"):
+        fence = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", payload, flags=re.DOTALL | re.IGNORECASE)
+        if not fence:
+            raise ModelResponseFormatError(message)
+        payload = fence.group(1).strip()
+    start = payload.find("{")
+    if start < 0:
+        raise ModelResponseFormatError(message)
+    payload = payload[start:]
+
+    def no_constants(value):
+        raise ModelResponseFormatError(message)
+
+    def unique_keys(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ModelResponseFormatError(message)
+            result[key] = value
+        return result
+
+    decoder = json.JSONDecoder(parse_constant=no_constants, object_pairs_hook=unique_keys)
+    try:
+        try:
+            parsed, end = decoder.raw_decode(payload)
+        except json.JSONDecodeError as error:
+            if not error.msg.startswith("Invalid control character"):
+                raise
+            repaired = _escape_json_string_whitespace(payload)
+            parsed, end = decoder.raw_decode(repaired)
+            payload = repaired
+            logging.debug("Escaped raw line breaks or tabs in AI JSON string values; response content preserved.")
+        if not isinstance(parsed, dict) or payload[end:].strip():
+            raise ModelResponseFormatError(message)
+        return parsed
+    except json.JSONDecodeError as error:
+        logging.warning("AI response JSON rejected: %s at line %s column %s", error.msg, error.lineno, error.colno)
+        raise ModelResponseFormatError(message) from error
 
 
 COMMUNITY_STANDARDS_PROMPT = """You are the mandatory Community Standards gate for an advertisement video. Inspect the complete video: visuals, on-screen text, spoken/sung words, sound effects, and the overall message and call to action. Do not analyze the ad's effectiveness, audience, transcript, or any other attribute. Return ONLY the JSON decision below.
@@ -547,6 +613,7 @@ RETURN FORMAT — copy this structure exactly, fill all values:
 }"""
 
         prompt = prompt.replace("{comments_block}", comments_block)
+        prompt += "\nReturn exactly one complete valid JSON object. Escape line breaks, carriage returns and tabs inside JSON strings. Never put literal control characters inside a JSON string. Do not repeat the response object."
 
         response = client.models.generate_content(
             model=MODEL_ID,
@@ -773,7 +840,7 @@ if __name__ == "__main__":
                 result["transcript"] = result.pop("original_transcript")
             _output_result(result)
         except Exception as e:
-            _output_result({"error": str(e), "code": "PROVIDER_LIMITATION" if isinstance(e, ProviderLimitationError) else "PROCESSING_ERROR",
+            _output_result({"error": str(e), "code": "PROVIDER_LIMITATION" if isinstance(e, ProviderLimitationError) else "INVALID_MODEL_RESPONSE" if isinstance(e, ModelResponseFormatError) else "PROCESSING_ERROR",
                             "provider_reason": getattr(e, "provider_reason", None)})
 
     elif len(sys.argv) == 3 and sys.argv[1] == "--prompt":

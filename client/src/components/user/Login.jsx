@@ -1,4 +1,4 @@
-import React, { useState, useEffect, createContext, useContext } from 'react';
+import React, { useState, useEffect, createContext, useContext, useRef } from 'react';
 import styled from 'styled-components';
 import { Link, useNavigate } from 'react-router-dom';
 import hide from '../../assets/hide.png';
@@ -16,18 +16,10 @@ export const AuthContext = createContext(null);
 export const AuthProvider = ({ children }) => {
   const [user, setUser]       = useState(null);  // { acc_id, acc_email }
   const [loading, setLoading] = useState(true);  // true while checking session on app load
+  const refreshRequest = useRef(null);
 
   // Always send auth cookies on cross-origin API requests.
   axios.defaults.withCredentials = true;
-
-  // On every app load, ask the server who is logged in using the httpOnly cookie
-  useEffect(() => {
-    axios
-      .get(`${ApiConfig.apiURL}/user/me`, { withCredentials: true })
-      .then((res) => setUser(res.data))
-      .catch(() => setUser(null)) // cookie missing or expired — not logged in
-      .finally(() => setLoading(false));
-  }, []);
 
   useEffect(() => {
     const interceptorId = axios.interceptors.response.use(
@@ -54,7 +46,11 @@ export const AuthProvider = ({ children }) => {
         originalRequest._retry = true;
 
         try {
-          await axios.post(`${ApiConfig.apiURL}/refresh`, {}, { withCredentials: true });
+          if (!refreshRequest.current) {
+            refreshRequest.current = axios.post(`${ApiConfig.apiURL}/refresh`, {}, { withCredentials: true })
+              .finally(() => { refreshRequest.current = null; });
+          }
+          await refreshRequest.current;
           return axios(originalRequest);
         } catch (refreshError) {
           setUser(null);
@@ -66,6 +62,17 @@ export const AuthProvider = ({ children }) => {
     return () => {
       axios.interceptors.response.eject(interceptorId);
     };
+  }, []);
+
+  // Register refresh handling before the first authenticated request is dispatched.
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+    axios.get(`${ApiConfig.apiURL}/user/me`, { withCredentials: true, signal: controller.signal })
+      .then((res) => { if (active) setUser(res.data); })
+      .catch(() => { if (active) setUser(null); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; controller.abort(); };
   }, []);
 
   const login  = (userData) => setUser(userData);
