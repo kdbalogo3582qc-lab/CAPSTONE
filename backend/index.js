@@ -217,6 +217,7 @@ function spawnPython(args) {
     return spawn(cmd, ["-u", ...args], {
         shell: false,
         cwd: path.dirname(fileURLToPath(import.meta.url)),
+        env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" },
     });
 }
 
@@ -224,6 +225,8 @@ const query = (sql, values = []) => new Promise((resolve, reject) =>
     db.query(sql, values, (err, rows) => err ? reject(err) : resolve(rows)));
 const reviewFlow = createReviewFlow({ query, run: (file, job, progress) => new Promise((resolve, reject) => {
     const worker = spawnPython(["./python_script.py", "--video-job", file]);
+    worker.stdout.setEncoding('utf8');
+    worker.stderr.setEncoding('utf8');
     let output = "";
     const timer = setTimeout(() => { worker.kill(); reject(Object.assign(new Error("Processing timed out. Please retry."), { code: "PROCESSING_ERROR" })); }, 10 * 60 * 1000);
     worker.on('error', err => { clearTimeout(timer); reject(err); });
@@ -277,6 +280,8 @@ app.post("/processPrompt", (req, res) => {
     const { title, description, analysisResult, userPrompt } = req.body;
 
     const runPrompt = (proc) => {
+        proc.stdout.setEncoding('utf8');
+        proc.stderr.setEncoding('utf8');
         let out = "";
         proc.stdout.on("data", (d) => { out += d.toString(); });
         proc.stderr.on("data", (d) => { console.error(`[Python stderr]: ${d}`); });

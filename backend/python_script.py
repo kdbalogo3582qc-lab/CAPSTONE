@@ -9,6 +9,10 @@ from google.genai import types
 from dotenv import load_dotenv
 import warnings
 
+# Node sends and receives UTF-8, including transcripts and prompts. Windows
+# otherwise defaults redirected streams to a legacy code page such as cp1252.
+for _stream in (sys.stdin, sys.stdout, sys.stderr):
+    _stream.reconfigure(encoding="utf-8")
 sys.stdout.reconfigure(line_buffering=True)
 
 warnings.filterwarnings("ignore")
