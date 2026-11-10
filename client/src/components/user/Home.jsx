@@ -364,7 +364,6 @@ function Home() {
 
     const processingRef = useRef(false);
     const pendingRunRef = useRef(null);
-    const [analysisComments, setAnalysisComments] = useState('');
     const [previousRuns, setPreviousRuns] = useState([]);
     useEffect(() => {
         if (!homeOwner) return;
@@ -373,7 +372,7 @@ function Home() {
                 ['home_uploadedVideoPath', 'home_uploadedVideoName', 'home_uploadedFileSize', 'home_analysisResult'].forEach(key => localStorage.removeItem(key));
                 setUploadedVideoPathState(null); setUploadedVideoNameState(null); setUploadedFileSizeState(0);
                 setAnalysisResultState(null); setPreviewURL(''); setViewVideo(false); setVideoFile(null);
-                pendingRunRef.current = null; setPreviousRuns([]); setAnalysisComments('');
+                pendingRunRef.current = null; setPreviousRuns([]);
                 setError(''); setErrorCode(''); setReviewNotice(null); setProcessingOutcome('idle');
             }
             if (!isSavedRecordingView) localStorage.setItem('home_storage_owner', homeOwner);
@@ -432,7 +431,7 @@ function Home() {
                 setProgressLogs(prev => [...prev, 'Using the video already uploaded.']);
             }
 
-            const comments = analysisComments.split('\n').map(text => text.trim()).filter(Boolean);
+            const comments = [];
             const previous = pendingRunRef.current;
             const request = !forceFresh && previous && previous.videoPath === videoPath && JSON.stringify(previous.comments) === JSON.stringify(comments)
                 ? previous : { videoPath, comments, forceFresh, requestId: window.crypto.randomUUID() };
@@ -929,11 +928,6 @@ function Home() {
                                     >
                                         Remove
                                     </SecondaryButton>
-                                    <label style={{ display: 'block', fontSize: 13 }}>
-                                        Viewer comments (optional, one per line)
-                                        <textarea value={analysisComments} onChange={e => setAnalysisComments(e.target.value)} disabled={isStreaming}
-                                            rows={2} style={{ display: 'block', width: '100%', border: '1px solid #cbd5e1', borderRadius: 6, padding: 8 }} />
-                                    </label>
                                     <PrimaryButton
                                         onClick={() => handleSubmit(false)}
                                         disabled={renderLoading || isStreaming || (!videoFile && !uploadedVideoPath)}
